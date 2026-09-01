@@ -12,7 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/ophomelab/terraform-provider-openwrt/internal/client/luci"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/luci"
 )
 
 var (

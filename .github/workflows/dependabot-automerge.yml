@@ -1,0 +1,82 @@
+name: dependabot-automerge
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  automerge:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Guardrail evaluation
+        id: guardrails
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const updateType = process.env.UPDATE_TYPE || '';
+            const allowedUpdate = updateType === 'version-update:semver-patch' || updateType === 'version-update:semver-minor';
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            const touchesWorkflow = files.some(f => f.filename.startsWith('.github/workflows/'));
+            const eligible = allowedUpdate && !touchesWorkflow;
+
+            core.setOutput('eligible', eligible ? 'true' : 'false');
+            core.info(`Dependabot update-type=${updateType}, touchesWorkflow=${touchesWorkflow}, eligible=${eligible}`);
+
+      - name: Guardrail - require successful CI test job
+        if: steps.guardrails.outputs.eligible == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.pull_request.head.sha;
+            const checks = await github.paginate(github.rest.checks.listForRef, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: sha,
+              per_page: 100,
+            });
+            const ciCheck = checks.find(c => c.name === 'test');
+            if (!ciCheck) {
+              core.setFailed('Required CI check "test" is missing.');
+              return;
+            }
+            if (ciCheck.status !== 'completed' || ciCheck.conclusion !== 'success') {
+              core.setFailed(`CI check "test" is not successful (status=${ciCheck.status}, conclusion=${ciCheck.conclusion}).`);
+            }
+
+      - name: Approve Dependabot PR
+        if: steps.guardrails.outputs.eligible == 'true'
+        run: gh pr review --approve "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge (squash)
+        if: steps.guardrails.outputs.eligible == 'true'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip message
+        if: steps.guardrails.outputs.eligible != 'true'
+        run: echo "Dependabot PR is not eligible for auto-merge guardrails."

@@ -9,14 +9,14 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/ophomelab/terraform-provider-openwrt/internal/client/luci"
-	"github.com/ophomelab/terraform-provider-openwrt/internal/resources/dhcphost"
-	"github.com/ophomelab/terraform-provider-openwrt/internal/resources/dhcppool"
-	"github.com/ophomelab/terraform-provider-openwrt/internal/resources/firewallrule"
-	"github.com/ophomelab/terraform-provider-openwrt/internal/resources/network"
-	"github.com/ophomelab/terraform-provider-openwrt/internal/resources/segment"
-	"github.com/ophomelab/terraform-provider-openwrt/internal/resources/wireguardinterface"
-	"github.com/ophomelab/terraform-provider-openwrt/internal/resources/wireguardpeer"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/luci"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/dhcphost"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/dhcppool"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/firewallrule"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/network"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/segment"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/wireguardinterface"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/wireguardpeer"
 )
 
 var _ provider.Provider = (*OpenWRTProvider)(nil)

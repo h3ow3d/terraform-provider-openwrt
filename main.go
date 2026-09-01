@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"github.com/ophomelab/terraform-provider-openwrt/internal/provider"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/provider"
 )
 
 var version = "dev"
@@ -18,7 +18,7 @@ func main() {
 	flag.Parse()
 
 	err := providerserver.Serve(context.Background(), provider.New(version), providerserver.ServeOpts{
-		Address: "registry.terraform.io/ophomelab/openwrt",
+		Address: "registry.terraform.io/h3ow3d/openwrt",
 		Debug:   debug,
 	})
 	if err != nil {

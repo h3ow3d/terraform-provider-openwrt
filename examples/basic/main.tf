@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     openwrt = {
-      source = "ophomelab/openwrt"
+      source = "h3ow3d/openwrt"
     }
   }
 }

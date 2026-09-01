@@ -1,4 +1,4 @@
-module github.com/ophomelab/terraform-provider-openwrt
+module github.com/h3ow3d/terraform-provider-openwrt
 
 go 1.25.0
 
