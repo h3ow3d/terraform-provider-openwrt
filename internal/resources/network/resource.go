@@ -68,7 +68,7 @@ func (r *Resource) Schema(ctx context.Context, req resource.SchemaRequest, resp 
 			},
 			"cidr": schema.StringAttribute{
 				Optional:    true,
-				Description: "CIDR address for static interfaces, e.g. 192.168.20.1/24.",
+				Description: "CIDR address for static interfaces, e.g. 192.0.2.1/24.",
 			},
 			"zone": schema.StringAttribute{
 				Optional:    true,
@@ -226,7 +226,7 @@ func validatePlan(plan ResourceModel, diags *diag.Diagnostics) bool {
 	}
 	if plan.CIDR.ValueString() != "" {
 		if _, _, err := net.ParseCIDR(plan.CIDR.ValueString()); err != nil {
-			diags.AddError("Invalid CIDR", fmt.Sprintf("cidr must be valid (example: 192.168.20.1/24): %v", err))
+			diags.AddError("Invalid CIDR", fmt.Sprintf("cidr must be valid (example: 192.0.2.1/24): %v", err))
 		}
 	}
 	if plan.VLANID.ValueInt64() != 0 {
