@@ -2,7 +2,6 @@ package luci
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -66,6 +65,8 @@ type rpcClient struct {
 	httpClient *http.Client
 	token      string
 }
+
+const ubusSessionID = "00000000000000000000000000000000"
 
 func NewClient(cfg Config) Client {
 	return &rpcClient{
@@ -239,55 +240,59 @@ func (c *rpcClient) rollbackFile(ctx context.Context, pkg, content string) error
 }
 
 func (c *rpcClient) readConfigFile(ctx context.Context, pkg string) (string, error) {
-	var result string
 	path := "/etc/config/" + pkg
-	if err := c.callRPC(ctx, "fs", "readfile", []any{path}, &result); err != nil {
+	var result struct {
+		Data string `json:"data"`
+	}
+	if err := c.callUBUS(ctx, "file", "read", map[string]any{"path": path}, &result); err != nil {
 		return "", err
 	}
-
-	raw, err := base64.StdEncoding.DecodeString(result)
-	if err != nil {
-		return "", fmt.Errorf("decoding file %s: %w", path, err)
-	}
-	return string(raw), nil
+	return result.Data, nil
 }
 
 func (c *rpcClient) writeConfigFile(ctx context.Context, pkg, content string) error {
 	path := "/etc/config/" + pkg
-	if err := c.callRPC(ctx, "fs", "writefile", []any{path, []byte(content)}, nil); err != nil {
+	if err := c.callUBUS(ctx, "file", "write", map[string]any{
+		"path": path,
+		"data": content,
+	}, nil); err != nil {
 		return fmt.Errorf("writing %s failed: %w", path, err)
 	}
 	return nil
 }
 
 func (c *rpcClient) commitPackage(ctx context.Context, pkg string) error {
-	var ok bool
-	if err := c.callRPC(ctx, "uci", "commit", []any{pkg}, &ok); err != nil {
+	if err := c.callUBUS(ctx, "uci", "commit", map[string]any{"config": pkg}, nil); err != nil {
 		return fmt.Errorf("uci commit %s failed: %w", pkg, err)
-	}
-	if !ok {
-		return fmt.Errorf("uci commit %s returned false", pkg)
 	}
 	return nil
 }
 
 func (c *rpcClient) restartService(ctx context.Context, name string) error {
-	var stopped bool
-	if err := c.callRPC(ctx, "sys", "init.stop", []any{name}, &stopped); err != nil {
-		return fmt.Errorf("stop service %s failed: %w", name, err)
+	restartResult := struct {
+		Code   int    `json:"code"`
+		Stdout string `json:"stdout"`
+		Stderr string `json:"stderr"`
+	}{}
+	if err := c.callUBUS(ctx, "file", "exec", map[string]any{
+		"command": "/etc/init.d/" + name,
+		"params":  []string{"restart"},
+	}, &restartResult); err != nil {
+		return fmt.Errorf("restart service %s failed: %w", name, err)
 	}
-
-	var started bool
-	if err := c.callRPC(ctx, "sys", "init.start", []any{name}, &started); err != nil {
-		return fmt.Errorf("start service %s failed: %w", name, err)
-	}
-	if !started {
-		return fmt.Errorf("service %s failed to start", name)
+	if restartResult.Code != 0 {
+		return fmt.Errorf(
+			"service %s restart exited with code %d (stdout=%q stderr=%q)",
+			name,
+			restartResult.Code,
+			strings.TrimSpace(restartResult.Stdout),
+			strings.TrimSpace(restartResult.Stderr),
+		)
 	}
 	return nil
 }
 
-func (c *rpcClient) callRPC(ctx context.Context, rpcName, method string, params []any, into any) error {
+func (c *rpcClient) callUBUS(ctx context.Context, object, method string, args map[string]any, into any) error {
 	baseURL, err := url.Parse(strings.TrimRight(c.cfg.Remote, "/"))
 	if err != nil {
 		return fmt.Errorf("invalid remote url: %w", err)
@@ -299,17 +304,19 @@ func (c *rpcClient) callRPC(ctx context.Context, rpcName, method string, params 
 		}
 	}
 
+	if args == nil {
+		args = map[string]any{}
+	}
+
 	doCall := func(token string) (*http.Response, error) {
 		rpcURL := *baseURL
-		rpcURL.Path = fmt.Sprintf("/cgi-bin/luci/rpc/%s", rpcName)
-		q := rpcURL.Query()
-		q.Set("auth", token)
-		rpcURL.RawQuery = q.Encode()
+		rpcURL.Path = "/cgi-bin/luci/admin/ubus"
 
 		body, err := json.Marshal(map[string]any{
-			"id":     1,
-			"method": method,
-			"params": params,
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "call",
+			"params":  []any{token, object, method, args},
 		})
 		if err != nil {
 			return nil, err
@@ -343,32 +350,55 @@ func (c *rpcClient) callRPC(ctx context.Context, rpcName, method string, params 
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("rpc %s/%s returned %d: %s", rpcName, method, resp.StatusCode, strings.TrimSpace(string(b)))
+		return fmt.Errorf("ubus %s.%s returned %d: %s", object, method, resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 
 	var parsed struct {
-		Result json.RawMessage `json:"result"`
-		Error  any             `json:"error"`
+		Result []json.RawMessage `json:"result"`
+		Error  any               `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return err
 	}
 	if parsed.Error != nil {
-		return fmt.Errorf("rpc %s/%s error: %v", rpcName, method, parsed.Error)
+		return fmt.Errorf("ubus %s.%s error: %v", object, method, parsed.Error)
+	}
+	if len(parsed.Result) == 0 {
+		return fmt.Errorf("ubus %s.%s returned no result payload", object, method)
+	}
+
+	var ubusCode int
+	if err := json.Unmarshal(parsed.Result[0], &ubusCode); err != nil {
+		return fmt.Errorf("ubus %s.%s returned invalid status code: %w", object, method, err)
+	}
+	if ubusCode != 0 {
+		return fmt.Errorf("ubus %s.%s returned status %d", object, method, ubusCode)
 	}
 	if into == nil {
 		return nil
 	}
-	return json.Unmarshal(parsed.Result, into)
+	if len(parsed.Result) < 2 {
+		return fmt.Errorf("ubus %s.%s returned no response object", object, method)
+	}
+	return json.Unmarshal(parsed.Result[1], into)
 }
 
 func (c *rpcClient) authenticate(ctx context.Context, baseURL *url.URL) error {
 	authURL := *baseURL
-	authURL.Path = "/cgi-bin/luci/rpc/auth"
+	authURL.Path = "/cgi-bin/luci/admin/ubus"
 	body, err := json.Marshal(map[string]any{
-		"id":     1,
-		"method": "login",
-		"params": []string{c.cfg.User, c.cfg.Password},
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "call",
+		"params": []any{
+			ubusSessionID,
+			"session",
+			"login",
+			map[string]any{
+				"username": c.cfg.User,
+				"password": c.cfg.Password,
+			},
+		},
 	})
 	if err != nil {
 		return err
@@ -392,18 +422,36 @@ func (c *rpcClient) authenticate(ctx context.Context, baseURL *url.URL) error {
 	}
 
 	var parsed struct {
-		Result string `json:"result"`
-		Error  any    `json:"error"`
+		Result []json.RawMessage `json:"result"`
+		Error  any               `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return err
 	}
 	if parsed.Error != nil {
-		return fmt.Errorf("auth rpc error: %v", parsed.Error)
+		return fmt.Errorf("auth ubus error: %v", parsed.Error)
 	}
-	if parsed.Result == "" {
+	if len(parsed.Result) < 2 {
+		return fmt.Errorf("auth result is incomplete")
+	}
+
+	var ubusCode int
+	if err := json.Unmarshal(parsed.Result[0], &ubusCode); err != nil {
+		return fmt.Errorf("invalid auth status code: %w", err)
+	}
+	if ubusCode != 0 {
+		return fmt.Errorf("auth failed with ubus status %d", ubusCode)
+	}
+
+	var authResult struct {
+		Token string `json:"ubus_rpc_session"`
+	}
+	if err := json.Unmarshal(parsed.Result[1], &authResult); err != nil {
+		return fmt.Errorf("invalid auth payload: %w", err)
+	}
+	if authResult.Token == "" {
 		return fmt.Errorf("auth token is empty")
 	}
-	c.token = parsed.Result
+	c.token = authResult.Token
 	return nil
 }

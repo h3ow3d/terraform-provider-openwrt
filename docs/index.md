@@ -1,6 +1,6 @@
 # openwrt Provider
 
-The `openwrt` provider manages OpenWrt router configuration over the LuCI JSON-RPC API (`/cgi-bin/luci/rpc/*`).
+The `openwrt` provider manages OpenWrt router configuration over the LuCI ubus JSON-RPC API (`/cgi-bin/luci/admin/ubus`).
 
 ## Example Usage
 

@@ -1,6 +1,6 @@
 # terraform-provider-openwrt
 
-Terraform/OpenTofu provider for managing OpenWrt network configuration over LuCI RPC.
+Terraform/OpenTofu provider for managing OpenWrt network configuration over LuCI ubus JSON-RPC.
 
 Registry source:
 

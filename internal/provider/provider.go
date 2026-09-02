@@ -46,11 +46,11 @@ func (p *OpenWRTProvider) Metadata(ctx context.Context, req provider.MetadataReq
 
 func (p *OpenWRTProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Provider for orchestrating OpenWrt network configuration over LuCI RPC.",
+		Description: "Provider for orchestrating OpenWrt network configuration over LuCI ubus JSON-RPC.",
 		Attributes: map[string]schema.Attribute{
 			"remote": schema.StringAttribute{
 				Optional:    true,
-				Description: "OpenWrt LuCI RPC endpoint. Can also be set via OPENWRT_REMOTE.",
+				Description: "OpenWrt router base URL. Can also be set via OPENWRT_REMOTE.",
 			},
 			"user": schema.StringAttribute{
 				Optional:    true,
