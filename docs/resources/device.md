@@ -6,7 +6,7 @@ Manages an OpenWrt `config device` section in `/etc/config/network`.
 
 ```hcl
 resource "openwrt_device" "runner_bridge" {
-  name  = "br-vlan20"
+  name  = "br-segment-a"
   type  = "bridge"
   ports = ["lan2"]
 }
@@ -31,5 +31,5 @@ resource "openwrt_device" "runner_bridge" {
 ## Import
 
 ```bash
-terraform import openwrt_device.runner_bridge br-vlan20
+terraform import openwrt_device.runner_bridge br-segment-a
 ```

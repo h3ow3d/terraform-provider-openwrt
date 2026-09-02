@@ -24,7 +24,7 @@ resource "openwrt_network" "runner_vlan" {
 }
 
 resource "openwrt_device" "runner_bridge" {
-  name  = "br-vlan20"
+  name  = "br-segment-a"
   type  = "bridge"
   ports = ["lan2"]
 }
@@ -47,7 +47,7 @@ resource "openwrt_dhcp_host" "host_a" {
 }
 
 resource "openwrt_domain" "grafana_runner" {
-  name = "grafana.runner.ophomelab.internal"
+  name = "monitoring.segment-a.example.internal"
   ip   = "192.0.2.10"
 }
 
