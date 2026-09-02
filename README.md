@@ -35,6 +35,8 @@ Provider args can also be set with environment variables:
 
 ## Resource scope
 
+- `openwrt_device`
+- `openwrt_domain`
 - `openwrt_segment`
 - `openwrt_network`
 - `openwrt_dhcp_pool`

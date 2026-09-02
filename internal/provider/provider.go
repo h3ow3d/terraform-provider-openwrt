@@ -4,19 +4,21 @@ import (
 	"context"
 	"os"
 
-	"github.com/hashicorp/terraform-plugin-framework/datasource"
-	"github.com/hashicorp/terraform-plugin-framework/provider"
-	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource"
-	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/luci"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/device"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/dhcphost"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/dhcppool"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/domain"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/firewallrule"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/network"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/segment"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/wireguardinterface"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/wireguardpeer"
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/provider"
+	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 var _ provider.Provider = (*OpenWRTProvider)(nil)
@@ -104,6 +106,8 @@ func (p *OpenWRTProvider) DataSources(ctx context.Context) []func() datasource.D
 
 func (p *OpenWRTProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
+		device.NewResource,
+		domain.NewResource,
 		segment.NewResource,
 		network.NewResource,
 		dhcppool.NewResource,

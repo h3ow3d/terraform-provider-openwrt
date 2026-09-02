@@ -25,6 +25,8 @@ resource "openwrt_network" "runner_vlan" {
 - `proto` (Required) Interface protocol (`static`, `dhcp`, etc).
 - `cidr` (Optional) Interface CIDR for static addressing (for example `192.0.2.1/24`).
 - `gateway` (Optional) Gateway address.
+- `ip6assign` (Optional) IPv6 prefix assignment length (for example `60`).
+- `delegate` (Optional) Whether to delegate IPv6 prefixes (`true`/`false`).
 - `dns` (Optional) List of resolver IPs.
 - `mtu` (Optional) MTU value.
 - `vlan_id` (Optional) VLAN id in range `1-4094`.

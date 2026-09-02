@@ -29,17 +29,19 @@ type Client interface {
 }
 
 type ApplyNetworkRequest struct {
-	ID       string
-	Name     string
-	Device   string
-	Proto    string
-	CIDR     string
-	Zone     string
-	MTU      int64
-	DNS      []string
-	Gateway  string
-	VLANID   int64
-	ParentIF string
+	ID        string
+	Name      string
+	Device    string
+	Proto     string
+	CIDR      string
+	Zone      string
+	MTU       int64
+	DNS       []string
+	Gateway   string
+	VLANID    int64
+	ParentIF  string
+	IP6Assign int64
+	Delegate  *bool
 }
 
 type UpsertDHCPHostRequest struct {
@@ -49,6 +51,7 @@ type UpsertDHCPHostRequest struct {
 	IP       string
 	DUID     string
 	Hostname string
+	DNS      bool
 }
 
 type ManagedBlock struct {
@@ -193,21 +196,37 @@ func buildNetworkBlock(req ApplyNetworkRequest) string {
 	if req.MTU > 0 {
 		lines = append(lines, fmt.Sprintf("\toption mtu '%d'", req.MTU))
 	}
+	if req.IP6Assign > 0 {
+		lines = append(lines, fmt.Sprintf("\toption ip6assign '%d'", req.IP6Assign))
+	}
+	if req.Delegate != nil {
+		if *req.Delegate {
+			lines = append(lines, "\toption delegate '1'")
+		} else {
+			lines = append(lines, "\toption delegate '0'")
+		}
+	}
 	return strings.Join(lines, "\n")
 }
 
 func buildDHCPHostBlock(req UpsertDHCPHostRequest) string {
+	recordName := req.Name
+	if req.Hostname != "" {
+		recordName = req.Hostname
+	}
 	lines := []string{
 		"config host",
-		fmt.Sprintf("\toption name '%s'", req.Name),
+		fmt.Sprintf("\toption name '%s'", recordName),
 		fmt.Sprintf("\toption mac '%s'", req.MAC),
 		fmt.Sprintf("\toption ip '%s'", req.IP),
 	}
 	if req.DUID != "" {
 		lines = append(lines, fmt.Sprintf("\toption duid '%s'", req.DUID))
 	}
-	if req.Hostname != "" {
-		lines = append(lines, fmt.Sprintf("\toption dns '%s'", req.Hostname))
+	if req.DNS {
+		lines = append(lines, "\toption dns '1'")
+	} else {
+		lines = append(lines, "\toption dns '0'")
 	}
 	return strings.Join(lines, "\n")
 }

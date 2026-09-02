@@ -42,3 +42,15 @@ All three values are required either in configuration or env vars.
 
 - Resource `Read` operations are lightweight and do not yet perform full remote drift reconciliation.
 - Migration from pre-existing unmanaged config should be done carefully and incrementally.
+
+## Resources
+
+- `openwrt_device`
+- `openwrt_domain`
+- `openwrt_segment`
+- `openwrt_network`
+- `openwrt_dhcp_pool`
+- `openwrt_dhcp_host`
+- `openwrt_firewall_rule`
+- `openwrt_wireguard_interface`
+- `openwrt_wireguard_peer`

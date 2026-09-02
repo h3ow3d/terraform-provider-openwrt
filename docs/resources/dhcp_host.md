@@ -19,7 +19,8 @@ resource "openwrt_dhcp_host" "host_a" {
 - `mac` (Required) MAC address (`aa:bb:cc:dd:ee:ff`).
 - `ip` (Required) Reserved IPv4 address.
 - `duid` (Optional) DHCPv6 DUID.
-- `hostname` (Optional) Hostname for DNS.
+- `hostname` (Optional) DNS name for this host. If set, provider writes this to `option name`.
+- `dns` (Optional) Whether to publish local DNS record (`option dns`). Defaults to `true`.
 
 ## Attributes Reference
 

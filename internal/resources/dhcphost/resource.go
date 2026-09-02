@@ -7,12 +7,12 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/luci"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/luci"
 )
 
 var (
@@ -32,6 +32,7 @@ type ResourceModel struct {
 	IP       types.String `tfsdk:"ip"`
 	DUID     types.String `tfsdk:"duid"`
 	Hostname types.String `tfsdk:"hostname"`
+	DNS      types.Bool   `tfsdk:"dns"`
 }
 
 func NewResource() resource.Resource {
@@ -70,6 +71,11 @@ func (r *Resource) Schema(ctx context.Context, req resource.SchemaRequest, resp 
 				Optional:    true,
 				Description: "Optional DNS hostname.",
 			},
+			"dns": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Whether to publish this host in local DNS (option dns 1/0). Defaults to true.",
+			},
 		},
 	}
 }
@@ -98,6 +104,9 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 	if r.client == nil {
 		resp.Diagnostics.AddError("Unconfigured client", "Provider client is not configured.")
 		return
+	}
+	if plan.DNS.IsNull() || plan.DNS.IsUnknown() {
+		plan.DNS = types.BoolValue(true)
 	}
 	if !validatePlan(plan, &resp.Diagnostics) {
 		return
@@ -130,6 +139,9 @@ func (r *Resource) Update(ctx context.Context, req resource.UpdateRequest, resp 
 	if r.client == nil {
 		resp.Diagnostics.AddError("Unconfigured client", "Provider client is not configured.")
 		return
+	}
+	if plan.DNS.IsNull() || plan.DNS.IsUnknown() {
+		plan.DNS = types.BoolValue(true)
 	}
 	if !validatePlan(plan, &resp.Diagnostics) {
 		return
@@ -173,6 +185,7 @@ func toDHCPHostRequest(plan ResourceModel) luci.UpsertDHCPHostRequest {
 		IP:       plan.IP.ValueString(),
 		DUID:     plan.DUID.ValueString(),
 		Hostname: plan.Hostname.ValueString(),
+		DNS:      plan.DNS.ValueBool(),
 	}
 }
 

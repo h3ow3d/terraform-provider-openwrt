@@ -34,7 +34,12 @@ resource "openwrt_segment" "runner" {
 - `zone` (Optional) Firewall zone name. Defaults to `name`.
 - `dns` (Optional) DNS servers list.
 - `gateway` (Optional) Gateway address.
+- `ip6assign` (Optional) IPv6 prefix assignment length. Defaults to `60`.
+- `delegate` (Optional) Whether to delegate IPv6 prefixes. Defaults to `false`.
 - `dhcp_leasetime` (Optional) Lease duration. Defaults to `12h`.
+- `dhcp_force` (Optional) DHCP force mode (`option force`). Defaults to `true`.
+- `dhcpv6` (Optional) DHCPv6 mode. Defaults to `disabled`.
+- `ra` (Optional) Router advertisement mode. Defaults to `disabled`.
 - `allow_wan_forward` (Optional) Adds forwarding rule from segment zone to `wan`. Defaults to `false`.
 - `firewall_input` (Optional) Zone input policy. Defaults to `REJECT`.
 - `firewall_output` (Optional) Zone output policy. Defaults to `ACCEPT`.

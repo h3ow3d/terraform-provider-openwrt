@@ -23,6 +23,12 @@ resource "openwrt_network" "runner_vlan" {
   parent_interface = "br-lan"
 }
 
+resource "openwrt_device" "runner_bridge" {
+  name  = "br-vlan20"
+  type  = "bridge"
+  ports = ["lan2"]
+}
+
 resource "openwrt_segment" "vault_vlan" {
   name              = "vault"
   device            = "br-lan.30"
@@ -38,6 +44,11 @@ resource "openwrt_dhcp_host" "host_a" {
   mac      = "02:11:22:33:44:55"
   ip       = "192.0.2.10"
   hostname = "host-a"
+}
+
+resource "openwrt_domain" "grafana_runner" {
+  name = "grafana.runner.ophomelab.internal"
+  ip   = "192.0.2.10"
 }
 
 resource "openwrt_firewall_rule" "allow_ssh_from_management" {

@@ -6,12 +6,12 @@ import (
 	"net"
 	"strings"
 
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/luci"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/luci"
 )
 
 var (
@@ -25,17 +25,19 @@ type Resource struct {
 }
 
 type ResourceModel struct {
-	ID       types.String `tfsdk:"id"`
-	Name     types.String `tfsdk:"name"`
-	Device   types.String `tfsdk:"device"`
-	Proto    types.String `tfsdk:"proto"`
-	CIDR     types.String `tfsdk:"cidr"`
-	Zone     types.String `tfsdk:"zone"`
-	MTU      types.Int64  `tfsdk:"mtu"`
-	DNS      types.List   `tfsdk:"dns"`
-	Gateway  types.String `tfsdk:"gateway"`
-	VLANID   types.Int64  `tfsdk:"vlan_id"`
-	ParentIF types.String `tfsdk:"parent_interface"`
+	ID        types.String `tfsdk:"id"`
+	Name      types.String `tfsdk:"name"`
+	Device    types.String `tfsdk:"device"`
+	Proto     types.String `tfsdk:"proto"`
+	CIDR      types.String `tfsdk:"cidr"`
+	Zone      types.String `tfsdk:"zone"`
+	MTU       types.Int64  `tfsdk:"mtu"`
+	DNS       types.List   `tfsdk:"dns"`
+	Gateway   types.String `tfsdk:"gateway"`
+	IP6Assign types.Int64  `tfsdk:"ip6assign"`
+	Delegate  types.Bool   `tfsdk:"delegate"`
+	VLANID    types.Int64  `tfsdk:"vlan_id"`
+	ParentIF  types.String `tfsdk:"parent_interface"`
 }
 
 func NewResource() resource.Resource {
@@ -86,6 +88,14 @@ func (r *Resource) Schema(ctx context.Context, req resource.SchemaRequest, resp 
 			"gateway": schema.StringAttribute{
 				Optional:    true,
 				Description: "Gateway address.",
+			},
+			"ip6assign": schema.Int64Attribute{
+				Optional:    true,
+				Description: "IPv6 prefix assignment length (for example 60).",
+			},
+			"delegate": schema.BoolAttribute{
+				Optional:    true,
+				Description: "Whether to delegate IPv6 prefixes on this interface.",
 			},
 			"vlan_id": schema.Int64Attribute{
 				Optional:    true,
@@ -203,6 +213,13 @@ func toApplyNetworkRequest(plan ResourceModel) luci.ApplyNetworkRequest {
 		Gateway:  plan.Gateway.ValueString(),
 		VLANID:   plan.VLANID.ValueInt64(),
 		ParentIF: plan.ParentIF.ValueString(),
+	}
+	if !plan.IP6Assign.IsNull() && !plan.IP6Assign.IsUnknown() && plan.IP6Assign.ValueInt64() > 0 {
+		req.IP6Assign = plan.IP6Assign.ValueInt64()
+	}
+	if !plan.Delegate.IsNull() && !plan.Delegate.IsUnknown() {
+		delegate := plan.Delegate.ValueBool()
+		req.Delegate = &delegate
 	}
 
 	if !plan.DNS.IsNull() && !plan.DNS.IsUnknown() {

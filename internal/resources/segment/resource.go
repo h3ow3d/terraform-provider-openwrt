@@ -6,12 +6,12 @@ import (
 	"net"
 	"strings"
 
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/luci"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/luci"
 )
 
 var (
@@ -40,6 +40,11 @@ type ResourceModel struct {
 	FirewallInput   types.String `tfsdk:"firewall_input"`
 	FirewallOutput  types.String `tfsdk:"firewall_output"`
 	FirewallForward types.String `tfsdk:"firewall_forward"`
+	DHCPForce       types.Bool   `tfsdk:"dhcp_force"`
+	DHCPv6          types.String `tfsdk:"dhcpv6"`
+	RA              types.String `tfsdk:"ra"`
+	IP6Assign       types.Int64  `tfsdk:"ip6assign"`
+	Delegate        types.Bool   `tfsdk:"delegate"`
 	ParentInterface types.String `tfsdk:"parent_interface"`
 	VLANID          types.Int64  `tfsdk:"vlan_id"`
 }
@@ -69,6 +74,11 @@ func (r *Resource) Schema(ctx context.Context, req resource.SchemaRequest, resp 
 			"firewall_input":    schema.StringAttribute{Optional: true, Computed: true},
 			"firewall_output":   schema.StringAttribute{Optional: true, Computed: true},
 			"firewall_forward":  schema.StringAttribute{Optional: true, Computed: true},
+			"dhcp_force":        schema.BoolAttribute{Optional: true, Computed: true},
+			"dhcpv6":            schema.StringAttribute{Optional: true, Computed: true},
+			"ra":                schema.StringAttribute{Optional: true, Computed: true},
+			"ip6assign":         schema.Int64Attribute{Optional: true, Computed: true},
+			"delegate":          schema.BoolAttribute{Optional: true, Computed: true},
 			"parent_interface":  schema.StringAttribute{Optional: true},
 			"vlan_id":           schema.Int64Attribute{Optional: true},
 		},
@@ -180,6 +190,21 @@ func applyDefaults(plan *ResourceModel) {
 	if plan.FirewallForward.IsNull() || plan.FirewallForward.IsUnknown() || plan.FirewallForward.ValueString() == "" {
 		plan.FirewallForward = types.StringValue("REJECT")
 	}
+	if plan.DHCPForce.IsNull() || plan.DHCPForce.IsUnknown() {
+		plan.DHCPForce = types.BoolValue(true)
+	}
+	if plan.DHCPv6.IsNull() || plan.DHCPv6.IsUnknown() || plan.DHCPv6.ValueString() == "" {
+		plan.DHCPv6 = types.StringValue("disabled")
+	}
+	if plan.RA.IsNull() || plan.RA.IsUnknown() || plan.RA.ValueString() == "" {
+		plan.RA = types.StringValue("disabled")
+	}
+	if plan.IP6Assign.IsNull() || plan.IP6Assign.IsUnknown() || plan.IP6Assign.ValueInt64() < 1 {
+		plan.IP6Assign = types.Int64Value(60)
+	}
+	if plan.Delegate.IsNull() || plan.Delegate.IsUnknown() {
+		plan.Delegate = types.BoolValue(false)
+	}
 	if plan.AllowWanForward.IsNull() || plan.AllowWanForward.IsUnknown() {
 		plan.AllowWanForward = types.BoolValue(false)
 	}
@@ -252,6 +277,12 @@ func buildNetworkBlock(plan ResourceModel) string {
 		"\toption proto '" + plan.Proto.ValueString() + "'",
 		"\toption ipaddr '" + ip.String() + "'",
 		"\toption netmask '" + net.IP(ipNet.Mask).String() + "'",
+		fmt.Sprintf("\toption ip6assign '%d'", plan.IP6Assign.ValueInt64()),
+	}
+	if plan.Delegate.ValueBool() {
+		lines = append(lines, "\toption delegate '1'")
+	} else {
+		lines = append(lines, "\toption delegate '0'")
 	}
 	if plan.Gateway.ValueString() != "" {
 		lines = append(lines, "\toption gateway '"+plan.Gateway.ValueString()+"'")
@@ -269,13 +300,21 @@ func buildNetworkBlock(plan ResourceModel) string {
 }
 
 func buildDHCPPoolBlock(plan ResourceModel) string {
-	return strings.Join([]string{
+	lines := []string{
 		"config dhcp '" + plan.Name.ValueString() + "'",
 		"\toption interface '" + plan.Name.ValueString() + "'",
 		fmt.Sprintf("\toption start '%d'", plan.DHCPStart.ValueInt64()),
 		fmt.Sprintf("\toption limit '%d'", plan.DHCPLimit.ValueInt64()),
 		"\toption leasetime '" + plan.DHCPLeaseTime.ValueString() + "'",
-	}, "\n")
+		"\toption dhcpv6 '" + plan.DHCPv6.ValueString() + "'",
+		"\toption ra '" + plan.RA.ValueString() + "'",
+	}
+	if plan.DHCPForce.ValueBool() {
+		lines = append(lines, "\toption force '1'")
+	} else {
+		lines = append(lines, "\toption force '0'")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func buildFirewallZoneBlock(plan ResourceModel) string {

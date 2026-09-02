@@ -21,6 +21,9 @@ resource "openwrt_dhcp_pool" "runner_pool" {
 - `start` (Required) Start offset in DHCP range.
 - `limit` (Required) Number of leases in the pool.
 - `leasetime` (Optional) Lease duration. Defaults to `12h`.
+- `force` (Optional) DHCP force mode (`option force`). Defaults to `true`.
+- `dhcpv6` (Optional) DHCPv6 mode. Defaults to `disabled`.
+- `ra` (Optional) Router advertisement mode. Defaults to `disabled`.
 
 ## Attributes Reference
 
