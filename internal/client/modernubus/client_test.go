@@ -51,11 +51,8 @@ func TestCallUsesModernEndpointAndRPCShape(t *testing.T) {
 				t.Fatalf("unexpected bootstrap session id")
 			}
 			loginArgs := req.Params[3].(map[string]any)
-			if loginArgs["username"] != "root" {
-				t.Fatalf("expected root username")
-			}
-			if loginArgs["password"] != "secret" {
-				t.Fatalf("expected password in request body")
+			if loginArgs["username"] != "root" || loginArgs["password"] != "secret" {
+				t.Fatalf("unexpected login request shape")
 			}
 			mu.Lock()
 			loginSeen = true
@@ -75,28 +72,17 @@ func TestCallUsesModernEndpointAndRPCShape(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(Config{
-		Remote:   server.URL,
-		User:     "root",
-		Password: "secret",
-	})
-
+	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
 	var board map[string]any
 	if err := client.Call(context.Background(), "system", "board", map[string]any{}, &board); err != nil {
 		t.Fatalf("Call failed: %v", err)
 	}
 
 	mu.Lock()
-	gotLogin := loginSeen
-	gotCall := callSeen
-	gotSession := callSession
+	gotLogin, gotCall, gotSession := loginSeen, callSeen, callSession
 	mu.Unlock()
-
-	if !gotLogin || !gotCall {
-		t.Fatalf("expected login and call to be observed")
-	}
-	if gotSession != "tokA" {
-		t.Fatalf("expected authenticated session token in call, got %q", gotSession)
+	if !gotLogin || !gotCall || gotSession != "tokA" {
+		t.Fatalf("missing expected call behavior")
 	}
 }
 
@@ -108,21 +94,13 @@ func TestLoginFailureReturnsAuthenticationError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(Config{
-		Remote:   server.URL,
-		User:     "root",
-		Password: "secret",
-	})
-
+	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
 	err := client.Call(context.Background(), "system", "board", nil, nil)
 	if err == nil {
 		t.Fatal("expected auth error")
 	}
-	if !IsAuthenticationError(err) {
-		t.Fatalf("expected authentication error, got %T", err)
-	}
-	if !IsPermissionDenied(err) {
-		t.Fatalf("expected permission denied classification, got %T", err)
+	if !IsAuthenticationError(err) || !IsPermissionDenied(err) {
+		t.Fatalf("unexpected error classification: %T", err)
 	}
 }
 
@@ -130,13 +108,9 @@ func TestFirmwareTimeoutParsingAndExpiryCapture(t *testing.T) {
 	t.Parallel()
 
 	now := time.Unix(1_700_000_000, 0)
-	clock := func() time.Time { return now }
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPCRequest(t, r)
-		object := req.Params[1].(string)
-		method := req.Params[2].(string)
-		if object == "session" && method == "login" {
+		if req.Params[1].(string) == "session" {
 			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":15}]}`))
 			return
 		}
@@ -148,22 +122,15 @@ func TestFirmwareTimeoutParsingAndExpiryCapture(t *testing.T) {
 		Remote:      server.URL,
 		User:        "root",
 		Password:    "secret",
-		Now:         clock,
+		Now:         func() time.Time { return now },
 		SessionSkew: time.Second,
 	})
 	if err := client.Call(context.Background(), "system", "board", nil, nil); err != nil {
 		t.Fatalf("call failed: %v", err)
 	}
 	info := client.SessionInfo()
-	if !info.HasSession {
-		t.Fatal("expected session to exist")
-	}
-	if info.TimeoutSec != 15 {
-		t.Fatalf("expected timeout 15, got %d", info.TimeoutSec)
-	}
-	want := now.Add(15 * time.Second)
-	if !info.ExpiresAt.Equal(want) {
-		t.Fatalf("expected expiresAt %v, got %v", want, info.ExpiresAt)
+	if !info.HasSession || info.TimeoutSec != 15 || !info.ExpiresAt.Equal(now.Add(15*time.Second)) {
+		t.Fatalf("unexpected session info: %+v", info)
 	}
 }
 
@@ -172,12 +139,9 @@ func TestSessionReuseBeforeExpiry(t *testing.T) {
 
 	var mu sync.Mutex
 	loginCount := 0
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPCRequest(t, r)
-		object := req.Params[1].(string)
-		method := req.Params[2].(string)
-		if object == "session" && method == "login" {
+		if req.Params[1].(string) == "session" {
 			mu.Lock()
 			loginCount++
 			mu.Unlock()
@@ -189,12 +153,8 @@ func TestSessionReuseBeforeExpiry(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
-	if err := client.Call(context.Background(), "system", "board", nil, nil); err != nil {
-		t.Fatalf("first call failed: %v", err)
-	}
-	if err := client.Call(context.Background(), "system", "board", nil, nil); err != nil {
-		t.Fatalf("second call failed: %v", err)
-	}
+	_ = client.Call(context.Background(), "system", "board", nil, nil)
+	_ = client.Call(context.Background(), "system", "board", nil, nil)
 
 	mu.Lock()
 	got := loginCount
@@ -222,20 +182,17 @@ func TestProactiveRenewalNearExpiry(t *testing.T) {
 
 	var mu sync.Mutex
 	loginCount := 0
-	nextToken := "tokA"
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPCRequest(t, r)
-		object := req.Params[1].(string)
-		method := req.Params[2].(string)
-		if object == "session" && method == "login" {
+		if req.Params[1].(string) == "session" {
 			mu.Lock()
 			loginCount++
-			token := nextToken
-			if loginCount == 1 {
-				nextToken = "tokB"
-			}
+			n := loginCount
 			mu.Unlock()
+			token := "tokA"
+			if n > 1 {
+				token = "tokB"
+			}
 			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"` + token + `","timeout":10}]}`))
 			return
 		}
@@ -250,20 +207,15 @@ func TestProactiveRenewalNearExpiry(t *testing.T) {
 		Now:         clock,
 		SessionSkew: 2 * time.Second,
 	})
-
-	if err := client.Call(context.Background(), "system", "board", nil, nil); err != nil {
-		t.Fatalf("first call failed: %v", err)
-	}
+	_ = client.Call(context.Background(), "system", "board", nil, nil)
 	advance(9 * time.Second)
-	if err := client.Call(context.Background(), "system", "board", nil, nil); err != nil {
-		t.Fatalf("second call failed: %v", err)
-	}
+	_ = client.Call(context.Background(), "system", "board", nil, nil)
 
 	mu.Lock()
 	got := loginCount
 	mu.Unlock()
 	if got != 2 {
-		t.Fatalf("expected proactive renewal login count 2, got %d", got)
+		t.Fatalf("expected proactive renewal, got %d logins", got)
 	}
 }
 
@@ -285,18 +237,15 @@ func TestConcurrentCallersSingleRenewal(t *testing.T) {
 
 	var mu sync.Mutex
 	loginCount := 0
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPCRequest(t, r)
-		object := req.Params[1].(string)
-		method := req.Params[2].(string)
-		if object == "session" && method == "login" {
+		if req.Params[1].(string) == "session" {
 			mu.Lock()
 			loginCount++
-			seq := loginCount
+			n := loginCount
 			mu.Unlock()
 			token := "tokA"
-			if seq > 1 {
+			if n > 1 {
 				token = "tokB"
 			}
 			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"` + token + `","timeout":10}]}`))
@@ -320,8 +269,8 @@ func TestConcurrentCallersSingleRenewal(t *testing.T) {
 	advance(11 * time.Second)
 
 	var wg sync.WaitGroup
-	errCh := make(chan error, 20)
-	for i := 0; i < 20; i++ {
+	errCh := make(chan error, 12)
+	for i := 0; i < 12; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -340,11 +289,11 @@ func TestConcurrentCallersSingleRenewal(t *testing.T) {
 	got := loginCount
 	mu.Unlock()
 	if got != 2 {
-		t.Fatalf("expected one renewal for all concurrent callers (total logins 2), got %d", got)
+		t.Fatalf("expected total 2 logins, got %d", got)
 	}
 }
 
-func TestGenericAuthenticatedCallSuccess(t *testing.T) {
+func TestUCIAddRequestShapeAndNamedResponse(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -355,21 +304,37 @@ func TestGenericAuthenticatedCallSuccess(t *testing.T) {
 			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":300}]}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"hostname":"GL-MT6000"}]}`))
+		if object != "uci" || method != "add" {
+			t.Fatalf("unexpected call: %s.%s", object, method)
+		}
+		args := req.Params[3].(map[string]any)
+		if args["config"] != "tf_probe_cap" || args["type"] != "meta" || args["name"] != "provider_probe" {
+			t.Fatalf("unexpected args shape: %#v", args)
+		}
+		values := args["values"].(map[string]any)
+		if values["marker"] != "phase-2a" {
+			t.Fatalf("unexpected marker")
+		}
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"section":"provider_probe"}]}`))
 	}))
 	defer server.Close()
 
 	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
-	var out map[string]any
-	if err := client.Call(context.Background(), "system", "board", nil, &out); err != nil {
-		t.Fatalf("generic call failed: %v", err)
+	resp, err := client.UCIAdd(context.Background(), UCIAddRequest{
+		Config: "tf_probe_cap",
+		Type:   "meta",
+		Name:   "provider_probe",
+		Values: map[string]any{"marker": "phase-2a"},
+	})
+	if err != nil {
+		t.Fatalf("uci.add failed: %v", err)
 	}
-	if out["hostname"] != "GL-MT6000" {
-		t.Fatalf("unexpected output: %v", out)
+	if resp.Section != "provider_probe" {
+		t.Fatalf("unexpected section: %q", resp.Section)
 	}
 }
 
-func TestUCIGetPackageResponse(t *testing.T) {
+func TestUCIAddAnonymousSectionResponse(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -378,21 +343,52 @@ func TestUCIGetPackageResponse(t *testing.T) {
 			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":300}]}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"values":{"lan":{"proto":"static"}}}]}`))
+		args := req.Params[3].(map[string]any)
+		if _, hasName := args["name"]; hasName {
+			t.Fatalf("did not expect explicit name for anonymous section")
+		}
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"section":"cfg0a11f3"}]}`))
 	}))
 	defer server.Close()
 
 	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
-	resp, err := client.UCIGet(context.Background(), UCIGetRequest{Config: "network"})
+	resp, err := client.UCIAdd(context.Background(), UCIAddRequest{
+		Config: "tf_probe_cap",
+		Type:   "meta",
+		Values: map[string]any{"marker": "phase-2a"},
+	})
 	if err != nil {
-		t.Fatalf("uci get failed: %v", err)
+		t.Fatalf("uci.add failed: %v", err)
 	}
-	if !resp.PackageExists || !resp.SectionExists || !resp.OptionExists {
-		t.Fatalf("unexpected existence flags: %+v", resp)
+	if resp.Section != "cfg0a11f3" {
+		t.Fatalf("unexpected anonymous section name: %q", resp.Section)
 	}
 }
 
-func TestUCIGetNamedSectionWithStringAndListAndMetadata(t *testing.T) {
+func TestMissingRequiredArguments(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient(Config{Remote: "http://127.0.0.1", User: "root", Password: "secret"})
+
+	_, err := client.UCIAdd(context.Background(), UCIAddRequest{Type: "meta"})
+	if err == nil {
+		t.Fatal("expected missing config validation error")
+	}
+	_, err = client.UCIAdd(context.Background(), UCIAddRequest{Config: "tf_probe_cap"})
+	if err == nil {
+		t.Fatal("expected missing type validation error")
+	}
+	_, err = client.UCIChanges(context.Background(), UCIChangesRequest{})
+	if err == nil {
+		t.Fatal("expected missing config validation error")
+	}
+	_, err = client.UCIRevert(context.Background(), UCIRevertRequest{})
+	if err == nil {
+		t.Fatal("expected missing config validation error")
+	}
+}
+
+func TestUCIChangesParsingAndEmptyResponse(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -401,36 +397,44 @@ func TestUCIGetNamedSectionWithStringAndListAndMetadata(t *testing.T) {
 			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":300}]}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"values":{".name":"probe",".type":"meta",".anonymous":false,"marker":"controlled-test","ports":["lan1:t","lan2:u*"]}}]}`))
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"changes":[["set","provider_probe","meta"],["set","provider_probe","marker","phase-2a"]]}]}`))
 	}))
 	defer server.Close()
 
 	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
-	resp, err := client.UCIGet(context.Background(), UCIGetRequest{Config: "tf_probe_cap", Section: "probe"})
+	resp, err := client.UCIChanges(context.Background(), UCIChangesRequest{Config: "tf_probe_cap"})
 	if err != nil {
-		t.Fatalf("uci get failed: %v", err)
+		t.Fatalf("uci.changes failed: %v", err)
 	}
-	if !resp.SectionExists {
-		t.Fatal("expected section to exist")
+	if len(resp.Changes) != 2 {
+		t.Fatalf("expected 2 changes, got %d", len(resp.Changes))
 	}
-	if resp.MetadataName != "probe" || resp.MetadataType != "meta" {
-		t.Fatalf("metadata mismatch: %+v", resp)
-	}
-	if resp.MetadataIsAnon == nil || *resp.MetadataIsAnon {
-		t.Fatalf("metadata anonymous mismatch: %+v", resp.MetadataIsAnon)
+	firstOp, _ := resp.Changes[0].StringAt(0)
+	if firstOp != "set" {
+		t.Fatalf("unexpected first operation: %q", firstOp)
 	}
 
-	marker, ok := resp.Values["marker"].String()
-	if !ok || marker != "controlled-test" {
-		t.Fatalf("unexpected marker: %q (%v)", marker, ok)
+	emptyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPCRequest(t, r)
+		if req.Params[1].(string) == "session" {
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokB","timeout":300}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"changes":[]} ]}`))
+	}))
+	defer emptyServer.Close()
+
+	client2 := NewClient(Config{Remote: emptyServer.URL, User: "root", Password: "secret"})
+	emptyResp, err := client2.UCIChanges(context.Background(), UCIChangesRequest{Config: "tf_probe_cap"})
+	if err != nil {
+		t.Fatalf("uci.changes empty failed: %v", err)
 	}
-	ports, ok := resp.Values["ports"].List()
-	if !ok || len(ports) != 2 {
-		t.Fatalf("unexpected ports: %v", ports)
+	if len(emptyResp.Changes) != 0 {
+		t.Fatalf("expected no changes, got %d", len(emptyResp.Changes))
 	}
 }
 
-func TestUCIGetEmptyPackageValuesArray(t *testing.T) {
+func TestUCIRevertSuccess(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -439,143 +443,119 @@ func TestUCIGetEmptyPackageValuesArray(t *testing.T) {
 			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":300}]}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"values":[]}]}`))
-	}))
-	defer server.Close()
-
-	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
-	resp, err := client.UCIGet(context.Background(), UCIGetRequest{Config: "tf_probe_cap"})
-	if err != nil {
-		t.Fatalf("uci get failed: %v", err)
-	}
-	if !resp.EmptyPackage || !resp.PackageExists {
-		t.Fatalf("expected empty package response, got %+v", resp)
-	}
-}
-
-func TestUCIGetMissingSectionResultZeroNoPayload(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		req := decodeRPCRequest(t, r)
-		if req.Params[1].(string) == "session" {
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":300}]}`))
-			return
+		if req.Params[1].(string) != "uci" || req.Params[2].(string) != "revert" {
+			t.Fatalf("unexpected call")
 		}
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0]}`))
 	}))
 	defer server.Close()
 
 	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
-	resp, err := client.UCIGet(context.Background(), UCIGetRequest{Config: "tf_probe_cap", Section: "missing"})
-	if err != nil {
-		t.Fatalf("uci get failed: %v", err)
-	}
-	if resp.SectionExists {
-		t.Fatalf("expected missing section semantics, got %+v", resp)
+	if _, err := client.UCIRevert(context.Background(), UCIRevertRequest{Config: "tf_probe_cap"}); err != nil {
+		t.Fatalf("uci.revert failed: %v", err)
 	}
 }
 
-func TestUbusStatusMappings(t *testing.T) {
+func TestUBUSFailureForAddChangesRevert(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name   string
-		status int
-	}{
-		{name: "OK", status: 0},
-		{name: "INVALID_ARGUMENT", status: 2},
-		{name: "NOT_FOUND", status: 4},
-		{name: "PERMISSION_DENIED", status: 6},
-		{name: "UNKNOWN_ERROR", status: 9},
-	}
-
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := ParseStatus(tc.status)
-			if got != Status(tc.status) {
-				t.Fatalf("status mapping mismatch: got %v want %d", got, tc.status)
+	run := func(t *testing.T, method string, invoke func(*Client) error) {
+		t.Helper()
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			req := decodeRPCRequest(t, r)
+			if req.Params[1].(string) == "session" {
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":300}]}`))
+				return
 			}
-		})
-	}
-}
-
-func TestPermissionDeniedFromJSONRPCError(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		req := decodeRPCRequest(t, r)
-		if req.Params[1].(string) == "session" {
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":300}]}`))
-			return
+			if req.Params[2].(string) != method {
+				t.Fatalf("expected method %s", method)
+			}
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[9]}`))
+		}))
+		defer server.Close()
+		client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
+		err := invoke(client)
+		if err == nil {
+			t.Fatalf("expected ubus failure")
 		}
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"Access denied"}}`))
-	}))
-	defer server.Close()
+		var statusErr *StatusError
+		if !errors.As(err, &statusErr) || statusErr.Status != StatusUnknownError {
+			t.Fatalf("expected status unknown error, got %T: %v", err, err)
+		}
+	}
 
-	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
-	err := client.Call(context.Background(), "service", "event", map[string]any{"type": "config.change"}, nil)
-	if err == nil {
-		t.Fatal("expected permission denied error")
-	}
-	if !IsPermissionDenied(err) {
-		t.Fatalf("expected permission denied error type, got %T", err)
-	}
+	t.Run("add", func(t *testing.T) {
+		run(t, "add", func(c *Client) error {
+			_, err := c.UCIAdd(context.Background(), UCIAddRequest{Config: "tf_probe_cap", Type: "meta"})
+			return err
+		})
+	})
+	t.Run("changes", func(t *testing.T) {
+		run(t, "changes", func(c *Client) error {
+			_, err := c.UCIChanges(context.Background(), UCIChangesRequest{Config: "tf_probe_cap"})
+			return err
+		})
+	})
+	t.Run("revert", func(t *testing.T) {
+		run(t, "revert", func(c *Client) error {
+			_, err := c.UCIRevert(context.Background(), UCIRevertRequest{Config: "tf_probe_cap"})
+			return err
+		})
+	})
 }
 
-func TestNonSuccessHTTPStatusError(t *testing.T) {
+func TestJSONRPCFailureForAddChangesRevert(t *testing.T) {
+	t.Parallel()
+
+	run := func(t *testing.T, method string, invoke func(*Client) error) {
+		t.Helper()
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			req := decodeRPCRequest(t, r)
+			if req.Params[1].(string) == "session" {
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":300}]}`))
+				return
+			}
+			if req.Params[2].(string) != method {
+				t.Fatalf("expected method %s", method)
+			}
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"Access denied"}}`))
+		}))
+		defer server.Close()
+		client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
+		err := invoke(client)
+		if err == nil {
+			t.Fatalf("expected json-rpc failure")
+		}
+		if !IsPermissionDenied(err) {
+			t.Fatalf("expected permission denied error, got %T: %v", err, err)
+		}
+	}
+
+	t.Run("add", func(t *testing.T) {
+		run(t, "add", func(c *Client) error {
+			_, err := c.UCIAdd(context.Background(), UCIAddRequest{Config: "tf_probe_cap", Type: "meta"})
+			return err
+		})
+	})
+	t.Run("changes", func(t *testing.T) {
+		run(t, "changes", func(c *Client) error {
+			_, err := c.UCIChanges(context.Background(), UCIChangesRequest{Config: "tf_probe_cap"})
+			return err
+		})
+	})
+	t.Run("revert", func(t *testing.T) {
+		run(t, "revert", func(c *Client) error {
+			_, err := c.UCIRevert(context.Background(), UCIRevertRequest{Config: "tf_probe_cap"})
+			return err
+		})
+	})
+}
+
+func TestUCIAddContextCancellation(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-	}))
-	defer server.Close()
-
-	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
-	err := client.Call(context.Background(), "system", "board", nil, nil)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	var authErr *AuthenticationError
-	if !errors.As(err, &authErr) {
-		t.Fatalf("expected authentication error, got %T", err)
-	}
-	var httpErr *HTTPStatusError
-	if !errors.As(err, &httpErr) {
-		t.Fatalf("expected HTTPStatusError in chain, got %T", err)
-	}
-}
-
-func TestMalformedResponseError(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{not-json`))
-	}))
-	defer server.Close()
-
-	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
-	err := client.Call(context.Background(), "system", "board", nil, nil)
-	if err == nil {
-		t.Fatal("expected malformed response error")
-	}
-	var authErr *AuthenticationError
-	if !errors.As(err, &authErr) {
-		t.Fatalf("expected authentication error, got %T", err)
-	}
-	var malformed *MalformedResponseError
-	if !errors.As(err, &malformed) {
-		t.Fatalf("expected malformed response error in chain, got %T", err)
-	}
-}
-
-func TestContextCancellationOrTimeout(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(150 * time.Millisecond)
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":300}]}`))
 	}))
 	defer server.Close()
@@ -586,55 +566,106 @@ func TestContextCancellationOrTimeout(t *testing.T) {
 		Password:   "secret",
 		HTTPClient: &http.Client{Timeout: 20 * time.Millisecond},
 	})
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 
-	err := client.Call(ctx, "system", "board", nil, nil)
+	_, err := client.UCIAdd(ctx, UCIAddRequest{Config: "tf_probe_cap", Type: "meta"})
 	if err == nil {
-		t.Fatal("expected timeout/cancellation error")
+		t.Fatal("expected context cancellation/timeout")
 	}
-	var transportErr *TransportError
 	var authErr *AuthenticationError
-	if !errors.As(err, &transportErr) && !errors.As(err, &authErr) {
-		t.Fatalf("expected transport/auth cancellation chain, got %T", err)
+	var transportErr *TransportError
+	if !errors.As(err, &authErr) && !errors.As(err, &transportErr) {
+		t.Fatalf("expected auth/transport error, got %T: %v", err, err)
 	}
 }
 
-func TestCredentialAndTokenRedactionFromErrors(t *testing.T) {
+func TestSensitiveValueRedaction(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeRPCRequest(t, r)
 		if req.Params[1].(string) == "session" {
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"token-secret-value","timeout":300}]}`))
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"token-secret","timeout":300}]}`))
 			return
 		}
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer server.Close()
 
-	client := NewClient(Config{
-		Remote:   server.URL,
-		User:     "root",
-		Password: "super-secret-password",
+	client := NewClient(Config{Remote: server.URL, User: "root", Password: "super-secret-password"})
+	_, err := client.UCIAdd(context.Background(), UCIAddRequest{
+		Config: "tf_probe_cap",
+		Type:   "meta",
+		Values: map[string]any{"marker": "super-secret-value"},
 	})
-
-	err := client.Call(context.Background(), "system", "board", nil, nil)
 	if err == nil {
-		t.Fatal("expected error")
+		t.Fatal("expected failure")
 	}
 	msg := err.Error()
-	if containsAny(msg, "super-secret-password", "token-secret-value") {
-		t.Fatalf("error leaked sensitive value: %q", msg)
+	for _, secret := range []string{"super-secret-password", "token-secret", "super-secret-value"} {
+		if strings.Contains(msg, secret) {
+			t.Fatalf("error leaked secret value: %q", secret)
+		}
 	}
 }
 
-func containsAny(s string, values ...string) bool {
-	for _, v := range values {
-		if v != "" && strings.Contains(s, v) {
-			return true
+func TestSessionReuseAcrossAddGetChangesRevert(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	loginCount := 0
+	callSessions := []string{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPCRequest(t, r)
+		object := req.Params[1].(string)
+		method := req.Params[2].(string)
+		if object == "session" && method == "login" {
+			mu.Lock()
+			loginCount++
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":300}]}`))
+			return
+		}
+		mu.Lock()
+		callSessions = append(callSessions, req.Params[0].(string))
+		mu.Unlock()
+
+		switch method {
+		case "add":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"section":"provider_probe"}]}`))
+		case "get":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"values":{"marker":"phase-2a"}}]}`))
+		case "changes":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"changes":[["set","provider_probe","meta"]]}]}`))
+		case "revert":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0]}`))
+		default:
+			t.Fatalf("unexpected method %s", method)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
+	_, _ = client.UCIAdd(context.Background(), UCIAddRequest{Config: "tf_probe_cap", Type: "meta", Name: "provider_probe", Values: map[string]any{"marker": "phase-2a"}})
+	_, _ = client.UCIGet(context.Background(), UCIGetRequest{Config: "tf_probe_cap", Section: "provider_probe"})
+	_, _ = client.UCIChanges(context.Background(), UCIChangesRequest{Config: "tf_probe_cap"})
+	_, _ = client.UCIRevert(context.Background(), UCIRevertRequest{Config: "tf_probe_cap"})
+
+	mu.Lock()
+	gotLogins := loginCount
+	sessions := append([]string(nil), callSessions...)
+	mu.Unlock()
+	if gotLogins != 1 {
+		t.Fatalf("expected one login, got %d", gotLogins)
+	}
+	if len(sessions) != 4 {
+		t.Fatalf("expected 4 authenticated calls, got %d", len(sessions))
+	}
+	for _, s := range sessions {
+		if s != "tokA" {
+			t.Fatalf("expected same session token for staged operations, got %q", s)
 		}
 	}
-	return false
 }

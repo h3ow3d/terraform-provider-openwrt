@@ -130,6 +130,14 @@ type Config struct {
 	SessionSkew time.Duration
 }
 
+type ValidationError struct {
+	Field string
+}
+
+func (e *ValidationError) Error() string {
+	return fmt.Sprintf("invalid request: missing required field %q", e.Field)
+}
+
 type UCIGetRequest struct {
 	Config  string
 	Section string
@@ -181,6 +189,42 @@ type UCIGetResponse struct {
 	MetadataType   string
 	MetadataIsAnon *bool
 }
+
+type UCIAddRequest struct {
+	Config string
+	Type   string
+	Name   string
+	Values map[string]any
+}
+
+type UCIAddResponse struct {
+	Section string
+}
+
+type UCIChangesRequest struct {
+	Config string
+}
+
+type UCIChange struct {
+	Items []UCIValue
+}
+
+func (c UCIChange) StringAt(index int) (string, bool) {
+	if index < 0 || index >= len(c.Items) {
+		return "", false
+	}
+	return c.Items[index].String()
+}
+
+type UCIChangesResponse struct {
+	Changes []UCIChange
+}
+
+type UCIRevertRequest struct {
+	Config string
+}
+
+type UCIRevertResponse struct{}
 
 type Client struct {
 	remote      string
@@ -259,6 +303,10 @@ func (c *Client) Call(ctx context.Context, object, method string, args map[strin
 }
 
 func (c *Client) UCIGet(ctx context.Context, req UCIGetRequest) (UCIGetResponse, error) {
+	if strings.TrimSpace(req.Config) == "" {
+		return UCIGetResponse{}, &ValidationError{Field: "config"}
+	}
+
 	args := map[string]any{
 		"config": req.Config,
 	}
@@ -338,6 +386,95 @@ func (c *Client) UCIGet(ctx context.Context, req UCIGetRequest) (UCIGetResponse,
 			Cause:  fmt.Errorf("unexpected values type %T", raw),
 		}
 	}
+}
+
+func (c *Client) UCIAdd(ctx context.Context, req UCIAddRequest) (UCIAddResponse, error) {
+	if strings.TrimSpace(req.Config) == "" {
+		return UCIAddResponse{}, &ValidationError{Field: "config"}
+	}
+	if strings.TrimSpace(req.Type) == "" {
+		return UCIAddResponse{}, &ValidationError{Field: "type"}
+	}
+
+	args := map[string]any{
+		"config": req.Config,
+		"type":   req.Type,
+	}
+	if strings.TrimSpace(req.Name) != "" {
+		args["name"] = req.Name
+	}
+	if req.Values != nil {
+		args["values"] = req.Values
+	}
+
+	var payload struct {
+		Section string `json:"section"`
+	}
+	if err := c.Call(ctx, "uci", "add", args, &payload); err != nil {
+		return UCIAddResponse{}, err
+	}
+	if strings.TrimSpace(payload.Section) == "" {
+		return UCIAddResponse{}, &MalformedResponseError{
+			Object: "uci",
+			Method: "add",
+			Cause:  fmt.Errorf("missing section in response"),
+		}
+	}
+	return UCIAddResponse{Section: payload.Section}, nil
+}
+
+func (c *Client) UCIChanges(ctx context.Context, req UCIChangesRequest) (UCIChangesResponse, error) {
+	if strings.TrimSpace(req.Config) == "" {
+		return UCIChangesResponse{}, &ValidationError{Field: "config"}
+	}
+
+	args := map[string]any{"config": req.Config}
+	var payload struct {
+		Changes any `json:"changes"`
+	}
+	if err := c.Call(ctx, "uci", "changes", args, &payload); err != nil {
+		return UCIChangesResponse{}, err
+	}
+
+	if payload.Changes == nil {
+		return UCIChangesResponse{Changes: []UCIChange{}}, nil
+	}
+	changeRows, ok := payload.Changes.([]any)
+	if !ok {
+		return UCIChangesResponse{}, &MalformedResponseError{
+			Object: "uci",
+			Method: "changes",
+			Cause:  fmt.Errorf("unexpected changes type %T", payload.Changes),
+		}
+	}
+
+	parsed := make([]UCIChange, 0, len(changeRows))
+	for _, row := range changeRows {
+		items, ok := row.([]any)
+		if !ok {
+			return UCIChangesResponse{}, &MalformedResponseError{
+				Object: "uci",
+				Method: "changes",
+				Cause:  fmt.Errorf("unexpected change row type %T", row),
+			}
+		}
+		change := UCIChange{Items: make([]UCIValue, 0, len(items))}
+		for _, item := range items {
+			change.Items = append(change.Items, UCIValue{raw: item})
+		}
+		parsed = append(parsed, change)
+	}
+	return UCIChangesResponse{Changes: parsed}, nil
+}
+
+func (c *Client) UCIRevert(ctx context.Context, req UCIRevertRequest) (UCIRevertResponse, error) {
+	if strings.TrimSpace(req.Config) == "" {
+		return UCIRevertResponse{}, &ValidationError{Field: "config"}
+	}
+	if err := c.Call(ctx, "uci", "revert", map[string]any{"config": req.Config}, nil); err != nil {
+		return UCIRevertResponse{}, err
+	}
+	return UCIRevertResponse{}, nil
 }
 
 type SessionInfo struct {
