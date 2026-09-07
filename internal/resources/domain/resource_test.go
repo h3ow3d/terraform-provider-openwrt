@@ -136,6 +136,23 @@ func TestSchema_NameRequiresReplacement(t *testing.T) {
 	}
 }
 
+func TestSchema_IDUsesStateForUnknown(t *testing.T) {
+	var resp resource.SchemaResponse
+	(&Resource{}).Schema(context.Background(), resource.SchemaRequest{}, &resp)
+	idAttr := resp.Schema.Attributes["id"]
+	typed, ok := idAttr.(schema.StringAttribute)
+	if !ok {
+		t.Fatalf("id attribute type mismatch")
+	}
+	if len(typed.PlanModifiers) == 0 {
+		t.Fatalf("expected id to include UseStateForUnknown plan modifier")
+	}
+	modType := typed.PlanModifiers[0]
+	if !strings.Contains(strings.ToLower(modType.Description(context.Background())), "state") {
+		t.Fatalf("expected id plan modifier to preserve prior state value")
+	}
+}
+
 func TestCreateDomain_CollisionReturnsImportDiagnostic(t *testing.T) {
 	section := sectionNameForDomain("tf-provider-probe.invalid")
 	client := &fakeDomainClient{
@@ -363,6 +380,16 @@ func TestImportIdentifierParsing(t *testing.T) {
 		if _, err := parseImportIdentifier(candidate); err == nil {
 			t.Fatalf("expected malformed import id to fail: %q", candidate)
 		}
+	}
+}
+
+func TestCanonicalDomainName_CanonicalizesForStableID(t *testing.T) {
+	got, err := canonicalDomainName("ExAmPle.InVaLiD.")
+	if err != nil {
+		t.Fatalf("canonicalization failed: %v", err)
+	}
+	if got != "example.invalid" {
+		t.Fatalf("unexpected canonical value: %q", got)
 	}
 }
 
