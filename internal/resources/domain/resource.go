@@ -2,6 +2,8 @@ package domain
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,6 +16,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -21,7 +25,14 @@ const (
 	dhcpPackage            = "dhcp"
 	domainSectionType      = "domain"
 	defaultApplyTimeoutSec = int64(10)
+	sectionPrefix          = "tfdom_"
+	sectionReadableMax     = 24
+	sectionHashHexLen      = 16
+	maxDomainLength        = 253
 )
+
+var validDomainChar = regexp.MustCompile(`^[a-z0-9._-]+$`)
+var nonSectionChar = regexp.MustCompile(`[^a-z0-9_]+`)
 
 type modernProviderData interface {
 	ModernUBUS() *modernubus.Client
@@ -59,9 +70,18 @@ func (r *Resource) Schema(ctx context.Context, req resource.SchemaRequest, resp 
 	resp.Schema = schema.Schema{
 		Description: "Static domain record (config domain) in /etc/config/dhcp.",
 		Attributes: map[string]schema.Attribute{
-			"id":   schema.StringAttribute{Computed: true},
-			"name": schema.StringAttribute{Required: true},
-			"ip":   schema.StringAttribute{Required: true},
+			"id": schema.StringAttribute{
+				Computed: true,
+			},
+			"name": schema.StringAttribute{
+				Required: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"ip": schema.StringAttribute{
+				Required: true,
+			},
 		},
 	}
 }
@@ -89,7 +109,8 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if !validatePlan(plan, &resp.Diagnostics) {
+	canonicalName, ok := validatePlan(plan, &resp.Diagnostics)
+	if !ok {
 		return
 	}
 	if r.client == nil {
@@ -97,12 +118,18 @@ func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp 
 		return
 	}
 
-	if err := upsertDomain(ctx, r.client, plan, defaultApplyTimeoutSec); err != nil {
+	err := createDomain(ctx, r.client, canonicalName, plan.IP.ValueString(), defaultApplyTimeoutSec)
+	if err != nil {
 		resp.Diagnostics.AddError("Failed to create domain", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(plan.Name.ValueString())
-	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+
+	state := ResourceModel{
+		ID:   types.StringValue(canonicalName),
+		Name: types.StringValue(canonicalName),
+		IP:   types.StringValue(plan.IP.ValueString()),
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -116,7 +143,13 @@ func (r *Resource) Read(ctx context.Context, req resource.ReadRequest, resp *res
 		return
 	}
 
-	live, exists, err := readLiveDomain(ctx, r.client, state.Name.ValueString())
+	canonicalName, err := canonicalDomainName(state.Name.ValueString())
+	if err != nil {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
+	live, exists, err := readLiveDomain(ctx, r.client, canonicalName)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to read domain", err.Error())
 		return
@@ -134,7 +167,8 @@ func (r *Resource) Update(ctx context.Context, req resource.UpdateRequest, resp 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if !validatePlan(plan, &resp.Diagnostics) {
+	canonicalName, ok := validatePlan(plan, &resp.Diagnostics)
+	if !ok {
 		return
 	}
 	if r.client == nil {
@@ -142,12 +176,18 @@ func (r *Resource) Update(ctx context.Context, req resource.UpdateRequest, resp 
 		return
 	}
 
-	if err := upsertDomain(ctx, r.client, plan, defaultApplyTimeoutSec); err != nil {
+	err := updateDomainIP(ctx, r.client, canonicalName, plan.IP.ValueString(), defaultApplyTimeoutSec)
+	if err != nil {
 		resp.Diagnostics.AddError("Failed to update domain", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(plan.Name.ValueString())
-	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+
+	state := ResourceModel{
+		ID:   types.StringValue(canonicalName),
+		Name: types.StringValue(canonicalName),
+		IP:   types.StringValue(plan.IP.ValueString()),
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *Resource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -161,17 +201,27 @@ func (r *Resource) Delete(ctx context.Context, req resource.DeleteRequest, resp 
 		return
 	}
 
-	if err := deleteDomain(ctx, r.client, state.Name.ValueString(), defaultApplyTimeoutSec); err != nil {
+	canonicalName, err := canonicalDomainName(state.Name.ValueString())
+	if err != nil {
+		return
+	}
+	if err := deleteDomain(ctx, r.client, canonicalName, defaultApplyTimeoutSec); err != nil {
 		resp.Diagnostics.AddError("Failed to delete domain", err.Error())
 	}
 }
 
 func (r *Resource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+	canonicalName, err := parseImportIdentifier(req.ID)
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid import identifier", err.Error())
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), canonicalName)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), canonicalName)...)
 }
 
-func upsertDomain(ctx context.Context, client ubusDomainClient, plan ResourceModel, applyTimeoutSec int64) error {
-	section := sectionNameForDomain(plan.Name.ValueString())
+func createDomain(ctx context.Context, client ubusDomainClient, domainName, ip string, applyTimeoutSec int64) error {
+	section := sectionNameForDomain(domainName)
 	minLifetime := time.Duration(applyTimeoutSec+5) * time.Second
 
 	return client.RunMutationTransaction(ctx, minLifetime, func(txCtx context.Context) error {
@@ -179,59 +229,58 @@ func upsertDomain(ctx context.Context, client ubusDomainClient, plan ResourceMod
 		if err != nil {
 			return err
 		}
-		values := map[string]any{
-			"name": plan.Name.ValueString(),
-			"ip":   plan.IP.ValueString(),
+		if existing.SectionExists {
+			return fmt.Errorf("section for domain already exists; import this resource using identifier %q", domainName)
 		}
 
-		if !existing.SectionExists {
-			addResp, err := client.UCIAdd(txCtx, modernubus.UCIAddRequest{
-				Config: dhcpPackage,
-				Type:   domainSectionType,
-				Name:   section,
-				Values: values,
-			})
-			if err != nil {
-				return err
-			}
-			if addResp.Section != section {
-				return fmt.Errorf("uci.add created unexpected section name")
-			}
-		} else {
-			if _, err := client.UCISet(txCtx, modernubus.UCISetRequest{
-				Config:  dhcpPackage,
-				Section: section,
-				Values:  values,
-			}); err != nil {
-				return err
-			}
-		}
-
-		if _, err := client.UCIApply(txCtx, modernubus.UCIApplyRequest{
-			Rollback: true,
-			Timeout:  applyTimeoutSec,
-		}); err != nil {
-			return err
-		}
-		if err := verifyRouterHealth(ctx, client); err != nil {
-			return err
-		}
-
-		readBack, err := client.UCIGet(txCtx, modernubus.UCIGetRequest{Config: dhcpPackage, Section: section})
+		addResp, err := client.UCIAdd(txCtx, modernubus.UCIAddRequest{
+			Config: dhcpPackage,
+			Type:   domainSectionType,
+			Name:   section,
+			Values: map[string]any{
+				"name": domainName,
+				"ip":   ip,
+			},
+		})
 		if err != nil {
 			return err
 		}
-		if !readBack.SectionExists {
-			return fmt.Errorf("post-apply read-back missing section")
-		}
-		liveName, _ := readBack.Values["name"].String()
-		liveIP, _ := readBack.Values["ip"].String()
-		if liveName != plan.Name.ValueString() || liveIP != plan.IP.ValueString() {
-			return fmt.Errorf("post-apply read-back mismatch")
+		if addResp.Section != section {
+			return fmt.Errorf("uci.add created unexpected section name")
 		}
 
-		_, err = client.UCIConfirm(txCtx, modernubus.UCIConfirmRequest{})
-		return err
+		if err := applyVerifyConfirm(txCtx, ctx, client, section, domainName, ip, applyTimeoutSec); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func updateDomainIP(ctx context.Context, client ubusDomainClient, domainName, ip string, applyTimeoutSec int64) error {
+	section := sectionNameForDomain(domainName)
+	minLifetime := time.Duration(applyTimeoutSec+5) * time.Second
+
+	return client.RunMutationTransaction(ctx, minLifetime, func(txCtx context.Context) error {
+		existing, err := client.UCIGet(txCtx, modernubus.UCIGetRequest{Config: dhcpPackage, Section: section})
+		if err != nil {
+			return err
+		}
+		if !existing.SectionExists {
+			return fmt.Errorf("managed section for domain is missing; run import or recreate")
+		}
+
+		if _, err := client.UCISet(txCtx, modernubus.UCISetRequest{
+			Config:  dhcpPackage,
+			Section: section,
+			Values: map[string]any{
+				"name": domainName,
+				"ip":   ip,
+			},
+		}); err != nil {
+			return err
+		}
+
+		return applyVerifyConfirm(txCtx, ctx, client, section, domainName, ip, applyTimeoutSec)
 	})
 }
 
@@ -272,10 +321,35 @@ func deleteDomain(ctx context.Context, client ubusDomainClient, domainName strin
 		if readBack.SectionExists {
 			return fmt.Errorf("post-delete apply read-back still found section")
 		}
-
 		_, err = client.UCIConfirm(txCtx, modernubus.UCIConfirmRequest{})
 		return err
 	})
+}
+
+func applyVerifyConfirm(txCtx, healthCtx context.Context, client ubusDomainClient, section, expectedName, expectedIP string, applyTimeoutSec int64) error {
+	if _, err := client.UCIApply(txCtx, modernubus.UCIApplyRequest{
+		Rollback: true,
+		Timeout:  applyTimeoutSec,
+	}); err != nil {
+		return err
+	}
+	if err := verifyRouterHealth(healthCtx, client); err != nil {
+		return err
+	}
+	readBack, err := client.UCIGet(txCtx, modernubus.UCIGetRequest{Config: dhcpPackage, Section: section})
+	if err != nil {
+		return err
+	}
+	if !readBack.SectionExists {
+		return fmt.Errorf("post-apply read-back missing section")
+	}
+	liveName, _ := readBack.Values["name"].String()
+	liveIP, _ := readBack.Values["ip"].String()
+	if liveName != expectedName || liveIP != expectedIP {
+		return fmt.Errorf("post-apply read-back mismatch")
+	}
+	_, err = client.UCIConfirm(txCtx, modernubus.UCIConfirmRequest{})
+	return err
 }
 
 func readLiveDomain(ctx context.Context, client ubusDomainClient, domainName string) (ResourceModel, bool, error) {
@@ -324,22 +398,62 @@ func verifyRouterHealth(ctx context.Context, client ubusDomainClient) error {
 	return nil
 }
 
-func sectionNameForDomain(name string) string {
-	normalized := strings.ToLower(strings.TrimSpace(name))
-	normalized = strings.ReplaceAll(normalized, ".", "_")
-	normalized = regexp.MustCompile(`[^a-z0-9_]`).ReplaceAllString(normalized, "_")
-	if normalized == "" {
-		normalized = "empty"
-	}
-	return "tf_domain_" + normalized
-}
-
-func validatePlan(plan ResourceModel, diags *diag.Diagnostics) bool {
-	if strings.TrimSpace(plan.Name.ValueString()) == "" {
-		diags.AddError("Invalid domain name", "name cannot be empty.")
+func validatePlan(plan ResourceModel, diags *diag.Diagnostics) (string, bool) {
+	canonicalName, err := canonicalDomainName(plan.Name.ValueString())
+	if err != nil {
+		diags.AddError("Invalid domain name", err.Error())
 	}
 	if ip := net.ParseIP(strings.TrimSpace(plan.IP.ValueString())); ip == nil {
 		diags.AddError("Invalid IP address", "ip must be a valid IPv4 or IPv6 address.")
 	}
-	return !diags.HasError()
+	return canonicalName, !diags.HasError()
+}
+
+func parseImportIdentifier(id string) (string, error) {
+	canonical, err := canonicalDomainName(id)
+	if err != nil {
+		return "", fmt.Errorf("expected canonical domain name import identifier: %w", err)
+	}
+	return canonical, nil
+}
+
+func canonicalDomainName(name string) (string, error) {
+	c := strings.ToLower(strings.TrimSpace(name))
+	c = strings.TrimSuffix(c, ".")
+	if c == "" {
+		return "", fmt.Errorf("domain name cannot be empty")
+	}
+	if len(c) > maxDomainLength {
+		return "", fmt.Errorf("domain name exceeds %d characters", maxDomainLength)
+	}
+	if !validDomainChar.MatchString(c) {
+		return "", fmt.Errorf("domain name contains unsupported characters")
+	}
+	labels := strings.Split(c, ".")
+	for _, label := range labels {
+		if label == "" {
+			return "", fmt.Errorf("domain name contains empty label")
+		}
+	}
+	return c, nil
+}
+
+func sectionNameForDomain(name string) string {
+	canonical, err := canonicalDomainName(name)
+	if err != nil {
+		canonical = "invalid"
+	}
+	readable := strings.ReplaceAll(canonical, ".", "_")
+	readable = strings.ReplaceAll(readable, "-", "_")
+	readable = nonSectionChar.ReplaceAllString(readable, "_")
+	readable = strings.Trim(readable, "_")
+	if readable == "" {
+		readable = "domain"
+	}
+	if len(readable) > sectionReadableMax {
+		readable = readable[:sectionReadableMax]
+	}
+	hash := sha256.Sum256([]byte(canonical))
+	hashHex := hex.EncodeToString(hash[:])[:sectionHashHexLen]
+	return sectionPrefix + readable + "_" + hashHex
 }
