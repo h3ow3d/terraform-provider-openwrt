@@ -150,6 +150,10 @@ type UCIValue struct {
 	raw any
 }
 
+func NewUCIValue(v any) UCIValue {
+	return UCIValue{raw: v}
+}
+
 func (v UCIValue) Raw() any {
 	return v.raw
 }
@@ -226,6 +230,38 @@ type UCIRevertRequest struct {
 
 type UCIRevertResponse struct{}
 
+type UCISetRequest struct {
+	Config  string
+	Section string
+	Type    string
+	Match   map[string]any
+	Values  map[string]any
+}
+
+type UCISetResponse struct{}
+
+type UCIDeleteRequest struct {
+	Config  string
+	Section string
+	Type    string
+	Match   map[string]any
+	Option  string
+	Options []string
+}
+
+type UCIDeleteResponse struct{}
+
+type UCIApplyRequest struct {
+	Rollback bool
+	Timeout  int64
+}
+
+type UCIApplyResponse struct{}
+
+type UCIConfirmRequest struct{}
+
+type UCIConfirmResponse struct{}
+
 type Client struct {
 	remote      string
 	user        string
@@ -238,6 +274,8 @@ type Client struct {
 	token     string
 	timeout   int64
 	expiresAt time.Time
+
+	mutationMu sync.Mutex
 }
 
 func NewClient(cfg Config) *Client {
@@ -326,7 +364,12 @@ func (c *Client) UCIGet(ctx context.Context, req UCIGetRequest) (UCIGetResponse,
 	var payload struct {
 		Values any `json:"values"`
 	}
-	err := c.Call(ctx, "uci", "get", args, &payload)
+	var err error
+	if _, pinned := pinnedSessionToken(ctx); pinned {
+		err = c.callMutation(ctx, "uci", "get", args, &payload)
+	} else {
+		err = c.Call(ctx, "uci", "get", args, &payload)
+	}
 	if err != nil {
 		return UCIGetResponse{}, err
 	}
@@ -410,7 +453,7 @@ func (c *Client) UCIAdd(ctx context.Context, req UCIAddRequest) (UCIAddResponse,
 	var payload struct {
 		Section string `json:"section"`
 	}
-	if err := c.Call(ctx, "uci", "add", args, &payload); err != nil {
+	if err := c.callMutation(ctx, "uci", "add", args, &payload); err != nil {
 		return UCIAddResponse{}, err
 	}
 	if strings.TrimSpace(payload.Section) == "" {
@@ -432,7 +475,7 @@ func (c *Client) UCIChanges(ctx context.Context, req UCIChangesRequest) (UCIChan
 	var payload struct {
 		Changes any `json:"changes"`
 	}
-	if err := c.Call(ctx, "uci", "changes", args, &payload); err != nil {
+	if err := c.callMutation(ctx, "uci", "changes", args, &payload); err != nil {
 		return UCIChangesResponse{}, err
 	}
 
@@ -471,10 +514,92 @@ func (c *Client) UCIRevert(ctx context.Context, req UCIRevertRequest) (UCIRevert
 	if strings.TrimSpace(req.Config) == "" {
 		return UCIRevertResponse{}, &ValidationError{Field: "config"}
 	}
-	if err := c.Call(ctx, "uci", "revert", map[string]any{"config": req.Config}, nil); err != nil {
+	if err := c.callMutation(ctx, "uci", "revert", map[string]any{"config": req.Config}, nil); err != nil {
 		return UCIRevertResponse{}, err
 	}
 	return UCIRevertResponse{}, nil
+}
+
+func (c *Client) UCISet(ctx context.Context, req UCISetRequest) (UCISetResponse, error) {
+	if strings.TrimSpace(req.Config) == "" {
+		return UCISetResponse{}, &ValidationError{Field: "config"}
+	}
+	if strings.TrimSpace(req.Section) == "" {
+		return UCISetResponse{}, &ValidationError{Field: "section"}
+	}
+	args := map[string]any{
+		"config":  req.Config,
+		"section": req.Section,
+	}
+	if strings.TrimSpace(req.Type) != "" {
+		args["type"] = req.Type
+	}
+	if len(req.Match) > 0 {
+		args["match"] = req.Match
+	}
+	if req.Values != nil {
+		args["values"] = req.Values
+	}
+	if err := c.callMutation(ctx, "uci", "set", args, nil); err != nil {
+		return UCISetResponse{}, err
+	}
+	return UCISetResponse{}, nil
+}
+
+func (c *Client) UCIDelete(ctx context.Context, req UCIDeleteRequest) (UCIDeleteResponse, error) {
+	if strings.TrimSpace(req.Config) == "" {
+		return UCIDeleteResponse{}, &ValidationError{Field: "config"}
+	}
+	if strings.TrimSpace(req.Section) == "" {
+		return UCIDeleteResponse{}, &ValidationError{Field: "section"}
+	}
+	args := map[string]any{
+		"config":  req.Config,
+		"section": req.Section,
+	}
+	if strings.TrimSpace(req.Type) != "" {
+		args["type"] = req.Type
+	}
+	if len(req.Match) > 0 {
+		args["match"] = req.Match
+	}
+	if strings.TrimSpace(req.Option) != "" {
+		args["option"] = req.Option
+	}
+	if len(req.Options) > 0 {
+		args["options"] = req.Options
+	}
+
+	err := c.callMutation(ctx, "uci", "delete", args, nil)
+	if err != nil {
+		var statusErr *StatusError
+		if errors.As(err, &statusErr) && statusErr.Status == StatusNotFound {
+			return UCIDeleteResponse{}, nil
+		}
+		return UCIDeleteResponse{}, err
+	}
+	return UCIDeleteResponse{}, nil
+}
+
+func (c *Client) UCIApply(ctx context.Context, req UCIApplyRequest) (UCIApplyResponse, error) {
+	if req.Timeout <= 0 {
+		return UCIApplyResponse{}, &ValidationError{Field: "timeout"}
+	}
+	args := map[string]any{
+		"rollback": req.Rollback,
+		"timeout":  req.Timeout,
+	}
+	if err := c.callMutation(ctx, "uci", "apply", args, nil); err != nil {
+		return UCIApplyResponse{}, err
+	}
+	return UCIApplyResponse{}, nil
+}
+
+func (c *Client) UCIConfirm(ctx context.Context, req UCIConfirmRequest) (UCIConfirmResponse, error) {
+	if err := c.callMutation(ctx, "uci", "confirm", map[string]any{}, nil); err != nil {
+		return UCIConfirmResponse{}, err
+	}
+	return UCIConfirmResponse{}, nil
 }
 
 type SessionInfo struct {
@@ -493,7 +618,28 @@ func (c *Client) SessionInfo() SessionInfo {
 	}
 }
 
+type txContextKey struct{}
+
+func (c *Client) RunMutationTransaction(ctx context.Context, minLifetime time.Duration, fn func(context.Context) error) error {
+	c.mutationMu.Lock()
+	defer c.mutationMu.Unlock()
+
+	if err := c.ensureSessionWithMinLifetime(ctx, minLifetime); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	token := c.token
+	c.mu.Unlock()
+
+	txCtx := context.WithValue(ctx, txContextKey{}, token)
+	return fn(txCtx)
+}
+
 func (c *Client) ensureSession(ctx context.Context) error {
+	return c.ensureSessionWithMinLifetime(ctx, 0)
+}
+
+func (c *Client) ensureSessionWithMinLifetime(ctx context.Context, minLifetime time.Duration) error {
 	c.mu.Lock()
 	token := c.token
 	expiresAt := c.expiresAt
@@ -502,7 +648,12 @@ func (c *Client) ensureSession(ctx context.Context) error {
 	if token == "" {
 		return c.forceReauthenticate(ctx)
 	}
-	if !expiresAt.IsZero() && c.now().Add(c.sessionSkew).After(expiresAt) {
+	if !expiresAt.IsZero() && c.now().Add(c.sessionSkew+minLifetime).After(expiresAt) {
+		c.mu.Lock()
+		c.token = ""
+		c.timeout = 0
+		c.expiresAt = time.Time{}
+		c.mu.Unlock()
 		return c.forceReauthenticate(ctx)
 	}
 	return nil
@@ -671,6 +822,47 @@ func (c *Client) rpcURL() (string, error) {
 	}
 	baseURL.Path = "/cgi-bin/luci/admin/ubus"
 	return baseURL.String(), nil
+}
+
+func (c *Client) callMutation(ctx context.Context, object, method string, args map[string]any, into any) error {
+	token, ok := pinnedSessionToken(ctx)
+	if !ok {
+		if err := c.ensureSession(ctx); err != nil {
+			return err
+		}
+		c.mu.Lock()
+		token = c.token
+		c.mu.Unlock()
+	}
+
+	resp, err := c.rpcCall(ctx, token, object, method, args)
+	if err != nil {
+		return &TransportError{
+			Object: object,
+			Method: method,
+			Cause:  err,
+		}
+	}
+	defer resp.Body.Close()
+
+	return decodeCallResponse(resp, object, method, into)
+}
+
+func pinnedSessionToken(ctx context.Context) (string, bool) {
+	val := ctx.Value(txContextKey{})
+	token, ok := val.(string)
+	if !ok || token == "" {
+		return "", false
+	}
+	return token, true
+}
+
+func (c *Client) CurrentRPCURL() (string, error) {
+	return c.rpcURL()
+}
+
+func (c *Client) EnsureSessionLifetime(ctx context.Context, minLifetime time.Duration) error {
+	return c.ensureSessionWithMinLifetime(ctx, minLifetime)
 }
 
 func decodeCallResponse(resp *http.Response, object, method string, into any) error {

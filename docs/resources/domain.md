@@ -22,9 +22,9 @@ resource "openwrt_domain" "grafana_runner" {
 
 ## Behavior
 
-- Writes a managed `config domain` block to `/etc/config/dhcp`.
-- Runs `uci commit dhcp`.
-- Restarts `dnsmasq`.
+- Manages a deterministic named `config domain` section in `dhcp` package through HTTP ubus UCI methods.
+- Applies staged changes with `uci.apply` (`rollback=true`) and confirms only after health/read-back checks succeed.
+- Uses live UCI reads for drift/absence detection (`result:[0]` with no payload is treated as absent section).
 
 ## Import
 

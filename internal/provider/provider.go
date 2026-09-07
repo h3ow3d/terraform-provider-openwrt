@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/luci"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/modernubus"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/device"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/dhcphost"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/dhcppool"
@@ -95,9 +96,15 @@ func (p *OpenWRTProvider) Configure(ctx context.Context, req provider.ConfigureR
 		User:     user,
 		Password: password,
 	})
+	modernClient := modernubus.NewClient(modernubus.Config{
+		Remote:   remote,
+		User:     user,
+		Password: password,
+	})
+	bundle := newClientBundle(client, modernClient)
 
-	resp.ResourceData = client
-	resp.DataSourceData = client
+	resp.ResourceData = bundle
+	resp.DataSourceData = bundle
 }
 
 func (p *OpenWRTProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
