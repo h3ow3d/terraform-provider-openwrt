@@ -1,18 +1,22 @@
 SHELL := /bin/bash
+GO ?= $(shell command -v go 2>/dev/null || echo /opt/homebrew/bin/go)
 
-.PHONY: tidy test build fmt precommit
+.PHONY: tidy test build fmt precommit testacc-mock
 
 tidy:
-	go mod tidy
+	$(GO) mod tidy
 
 test:
-	go test ./...
+	$(GO) test ./...
 
 build:
-	go build ./...
+	$(GO) build ./...
 
 fmt:
 	gofmt -w $(shell find . -name '*.go')
 
 precommit:
 	pre-commit run --all-files
+
+testacc-mock:
+	TF_ACC=1 OPENWRT_ACC_TARGET=mock $(GO) test -v ./internal/resources/domain -run TestAccOpenWRTDomainMockLifecycle -count=1
