@@ -13,10 +13,10 @@
           "domainneeded": "1",
           "local": "/placeholder/"
         },
-        "cfg0002": {
+        "container_lan": {
           ".anonymous": true,
           ".index": 1,
-          ".name": "cfg0002",
+          ".name": "lan",
           ".type": "dhcp",
           "interface": "placeholder0",
           "start": "100"

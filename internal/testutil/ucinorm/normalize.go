@@ -12,11 +12,12 @@ type Snapshot struct {
 }
 
 type Section struct {
-	Key       string
-	Type      string
-	Anonymous bool
-	Index     int
-	Options   map[string]any
+	ContainerKey string
+	Name         string
+	Type         string
+	Anonymous    bool
+	Index        int
+	Options      map[string]any
 }
 
 func ParseDHCPPackageGetResponse(body []byte) (Snapshot, error) {
@@ -54,17 +55,25 @@ func ParseDHCPPackageGetResponse(body []byte) (Snapshot, error) {
 		return Snapshot{}, errors.New("values payload must be object")
 	}
 
+	keySeen := map[string]bool{}
 	nameSeen := map[string]bool{}
 	sections := make([]Section, 0, len(values))
 	for key, rawSection := range values {
+		if key == "" {
+			return Snapshot{}, errors.New("empty container key")
+		}
+		if keySeen[key] {
+			return Snapshot{}, errors.New("duplicate container key")
+		}
+		keySeen[key] = true
 		section, err := parseSection(key, rawSection)
 		if err != nil {
 			return Snapshot{}, err
 		}
-		if nameSeen[section.Key] {
-			return Snapshot{}, errors.New("duplicate section identity")
+		if nameSeen[section.Name] {
+			return Snapshot{}, errors.New("ambiguous section identity")
 		}
-		nameSeen[section.Key] = true
+		nameSeen[section.Name] = true
 		sections = append(sections, section)
 	}
 
@@ -72,10 +81,10 @@ func ParseDHCPPackageGetResponse(body []byte) (Snapshot, error) {
 		if a.Index != b.Index {
 			return a.Index - b.Index
 		}
-		if a.Key < b.Key {
+		if a.ContainerKey < b.ContainerKey {
 			return -1
 		}
-		if a.Key > b.Key {
+		if a.ContainerKey > b.ContainerKey {
 			return 1
 		}
 		return 0
@@ -96,11 +105,12 @@ func (s Snapshot) CanonicalJSON() ([]byte, error) {
 			opts[key] = sec.Options[key]
 		}
 		normalized = append(normalized, map[string]any{
-			"key":       sec.Key,
-			"type":      sec.Type,
-			"anonymous": sec.Anonymous,
-			"index":     sec.Index,
-			"options":   opts,
+			"container_key": sec.ContainerKey,
+			"name":          sec.Name,
+			"type":          sec.Type,
+			"anonymous":     sec.Anonymous,
+			"index":         sec.Index,
+			"options":       opts,
 		})
 	}
 	return json.Marshal(normalized)
@@ -113,7 +123,7 @@ func parseSection(key string, rawSection json.RawMessage) (Section, error) {
 	}
 
 	name, ok := readString(section, ".name")
-	if !ok || name != key {
+	if !ok || name == "" {
 		return Section{}, errors.New("invalid section metadata")
 	}
 	typ, ok := readString(section, ".type")
@@ -142,11 +152,12 @@ func parseSection(key string, rawSection json.RawMessage) (Section, error) {
 	}
 
 	return Section{
-		Key:       key,
-		Type:      typ,
-		Anonymous: anonymous,
-		Index:     index,
-		Options:   options,
+		ContainerKey: key,
+		Name:         name,
+		Type:         typ,
+		Anonymous:    anonymous,
+		Index:        index,
+		Options:      options,
 	}, nil
 }
 

@@ -22,8 +22,11 @@ func TestParseDHCPPackageGetResponse_ObservedShapeParses(t *testing.T) {
 	}
 	foundManaged := false
 	for _, section := range snapshot.Sections {
-		if section.Key == "tfdom_tf_provider_probe_invali_6f49c8925438a00d" {
+		if section.ContainerKey == "tfdom_tf_provider_probe_invali_6f49c8925438a00d" {
 			foundManaged = true
+			if section.Name != "tfdom_tf_provider_probe_invali_6f49c8925438a00d" {
+				t.Fatalf("unexpected managed section .name: %s", section.Name)
+			}
 			if section.Options["name"] != "tf-provider-probe.invalid" || section.Options["ip"] != "192.0.2.1" {
 				t.Fatalf("unexpected managed values: %#v", section.Options)
 			}
@@ -31,6 +34,21 @@ func TestParseDHCPPackageGetResponse_ObservedShapeParses(t *testing.T) {
 	}
 	if !foundManaged {
 		t.Fatal("managed section not found in parsed snapshot")
+	}
+}
+
+func TestParseDHCPPackageGetResponse_DifferingKeyAndNameParses(t *testing.T) {
+	raw := []byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"values":{"containerA":{".name":"semanticA",".type":"domain",".anonymous":false,".index":4,"name":"a.invalid","ip":"192.0.2.10"}}}]}`)
+	snapshot, err := ParseDHCPPackageGetResponse(raw)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if len(snapshot.Sections) != 1 {
+		t.Fatalf("expected 1 section, got %d", len(snapshot.Sections))
+	}
+	section := snapshot.Sections[0]
+	if section.ContainerKey != "containerA" || section.Name != "semanticA" {
+		t.Fatalf("key/name identity not preserved: %#v", section)
 	}
 }
 
@@ -64,6 +82,24 @@ func TestParseDHCPPackageGetResponse_NormalizationDeterministic(t *testing.T) {
 	}
 }
 
+func TestParseDHCPPackageGetResponse_MapOrderDoesNotAffectSnapshot(t *testing.T) {
+	first := []byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"values":{"k1":{".name":"n1",".type":"domain",".anonymous":false,".index":2,"ip":"192.0.2.1","name":"a.invalid"},"k2":{".name":"n2",".type":"domain",".anonymous":false,".index":1,"ip":"192.0.2.2","name":"b.invalid"}}}]}`)
+	second := []byte(`{"id":1,"result":[0,{"values":{"k2":{".type":"domain",".anonymous":false,".index":1,".name":"n2","name":"b.invalid","ip":"192.0.2.2"},"k1":{".index":2,".name":"n1",".anonymous":false,".type":"domain","name":"a.invalid","ip":"192.0.2.1"}}}],"jsonrpc":"2.0"}`)
+	a, err := ParseDHCPPackageGetResponse(first)
+	if err != nil {
+		t.Fatalf("parse A failed: %v", err)
+	}
+	b, err := ParseDHCPPackageGetResponse(second)
+	if err != nil {
+		t.Fatalf("parse B failed: %v", err)
+	}
+	aj, _ := a.CanonicalJSON()
+	bj, _ := b.CanonicalJSON()
+	if !bytes.Equal(aj, bj) {
+		t.Fatalf("canonical mismatch for semantically identical payloads")
+	}
+}
+
 func TestParseDHCPPackageGetResponse_RetainsSectionOrderingMetadata(t *testing.T) {
 	raw := readFixture(t, "flint2_dhcp_get_sanitized.json")
 	snapshot, err := ParseDHCPPackageGetResponse(raw)
@@ -82,7 +118,8 @@ func TestParseDHCPPackageGetResponse_RejectsMalformedVariants(t *testing.T) {
 		`{"jsonrpc":"2.0","id":1,"result":[0,{"values":[]}]}`,
 		`{"jsonrpc":"2.0","id":1,"result":[0,{"values":{"x":{".name":"x",".type":"domain",".anonymous":false}}}]}`,
 		`{"jsonrpc":"2.0","id":1,"result":[0,{"values":{"x":{".name":"x",".type":"domain",".anonymous":false,".index":0,"bad":{"nested":"no"}}}}]}`,
-		`{"jsonrpc":"2.0","id":1,"result":[0,{"values":{"x":{".name":"y",".type":"domain",".anonymous":false,".index":0}}}]}`,
+		`{"jsonrpc":"2.0","id":1,"result":[0,{"values":{"x":{".name":"",".type":"domain",".anonymous":false,".index":0}}}]}`,
+		`{"jsonrpc":"2.0","id":1,"result":[0,{"values":{"x":{".name":"dup",".type":"domain",".anonymous":false,".index":0},"y":{".name":"dup",".type":"domain",".anonymous":false,".index":1}}}]}`,
 	}
 	for _, raw := range cases {
 		if _, err := ParseDHCPPackageGetResponse([]byte(raw)); err == nil {
@@ -125,8 +162,11 @@ func TestParseDHCPPackageGetResponse_MockSentinelDetectable(t *testing.T) {
 	}
 	found := false
 	for _, section := range snapshot.Sections {
-		if section.Key == "sentinel_static" {
+		if section.ContainerKey == "sentinel_static" {
 			found = true
+			if section.Name == section.ContainerKey {
+				t.Fatalf("expected sentinel key/name mismatch in mock")
+			}
 			if section.Options["name"] != "sentinel.invalid" || section.Options["ip"] != "203.0.113.99" {
 				t.Fatalf("unexpected sentinel values: %#v", section.Options)
 			}
@@ -134,6 +174,42 @@ func TestParseDHCPPackageGetResponse_MockSentinelDetectable(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("sentinel section not found")
+	}
+}
+
+func TestParseDHCPPackageGetResponse_ManagedSectionFoundExactlyOnce(t *testing.T) {
+	raw := readFixture(t, "flint2_dhcp_get_sanitized.json")
+	snapshot, err := ParseDHCPPackageGetResponse(raw)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	count := 0
+	for _, section := range snapshot.Sections {
+		if section.ContainerKey == "tfdom_tf_provider_probe_invali_6f49c8925438a00d" && section.Options["name"] == "tf-provider-probe.invalid" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one managed section, got %d", count)
+	}
+}
+
+func TestParseDHCPPackageGetResponse_UnrelatedChangeIsDetectable(t *testing.T) {
+	raw := readFixture(t, "flint2_dhcp_get_sanitized.json")
+	base, err := ParseDHCPPackageGetResponse(raw)
+	if err != nil {
+		t.Fatalf("parse base failed: %v", err)
+	}
+
+	mutated := []byte(strings.Replace(string(raw), `"start": "100"`, `"start": "101"`, 1))
+	next, err := ParseDHCPPackageGetResponse(mutated)
+	if err != nil {
+		t.Fatalf("parse mutated failed: %v", err)
+	}
+	baseJSON, _ := base.CanonicalJSON()
+	nextJSON, _ := next.CanonicalJSON()
+	if bytes.Equal(baseJSON, nextJSON) {
+		t.Fatalf("expected unrelated option change to alter normalized snapshot")
 	}
 }
 

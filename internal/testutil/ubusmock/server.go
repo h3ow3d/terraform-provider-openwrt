@@ -52,6 +52,7 @@ type SessionInfo struct {
 }
 
 type section struct {
+	Name      string
 	Type      string
 	Anonymous bool
 	Index     int
@@ -102,6 +103,7 @@ func NewServer() *Server {
 		committed: map[string]map[string]section{
 			"dhcp": {
 				sentinelSectionName: {
+					Name:      "cfgffff",
 					Type:      "domain",
 					Anonymous: false,
 					Index:     0,
@@ -219,8 +221,12 @@ func (s *Server) Section(config, sectionName string) (map[string]any, bool) {
 	if !ok {
 		return nil, false
 	}
+	name := entry.Name
+	if name == "" {
+		name = sectionName
+	}
 	values := map[string]any{
-		".name":      sectionName,
+		".name":      name,
 		".type":      entry.Type,
 		".anonymous": entry.Anonymous,
 		".index":     entry.Index,
@@ -240,8 +246,12 @@ func (s *Server) PackageSnapshot(config string) map[string]map[string]any {
 	}
 	out := make(map[string]map[string]any, len(pkg))
 	for sectionName, entry := range pkg {
+		name := entry.Name
+		if name == "" {
+			name = sectionName
+		}
 		values := map[string]any{
-			".name":      sectionName,
+			".name":      name,
 			".type":      entry.Type,
 			".anonymous": entry.Anonymous,
 			".index":     entry.Index,
@@ -526,6 +536,7 @@ func (s *Server) handleUCIAdd(w http.ResponseWriter, id any, token string, args 
 	sectionIndex := s.nextIndex
 	s.nextIndex++
 	session.staged.sections[config][sectionName] = section{
+		Name:      sectionName,
 		Type:      typ,
 		Anonymous: false,
 		Index:     sectionIndex,
@@ -714,6 +725,7 @@ func (s *Server) setCommittedSectionLocked(config, sectionName string, entry sec
 		s.committed[config] = pkg
 	}
 	pkg[sectionName] = section{
+		Name:      entry.Name,
 		Type:      entry.Type,
 		Anonymous: entry.Anonymous,
 		Index:     entry.Index,
@@ -752,6 +764,7 @@ func (s *Server) commitConfigLocked(session *mockSession, config string) {
 		}
 		for sectionName, entry := range stagedSections {
 			pkg[sectionName] = section{
+				Name:      entry.Name,
 				Type:      entry.Type,
 				Anonymous: entry.Anonymous,
 				Index:     entry.Index,
@@ -769,6 +782,7 @@ func (s *Server) sessionViewLocked(token, config string) map[string]section {
 	if pkg, ok := s.committed[config]; ok {
 		for sectionName, entry := range pkg {
 			view[sectionName] = section{
+				Name:      entry.Name,
 				Type:      entry.Type,
 				Anonymous: entry.Anonymous,
 				Index:     entry.Index,
@@ -790,6 +804,7 @@ func (s *Server) sessionViewLocked(token, config string) map[string]section {
 	}
 	for sectionName, entry := range session.staged.sections[config] {
 		view[sectionName] = section{
+			Name:      entry.Name,
 			Type:      entry.Type,
 			Anonymous: entry.Anonymous,
 			Index:     entry.Index,
@@ -848,8 +863,12 @@ func isAllowedMethod(object, method string) bool {
 }
 
 func sectionToValues(sectionName string, entry section) map[string]any {
+	name := entry.Name
+	if name == "" {
+		name = sectionName
+	}
 	values := map[string]any{
-		".name":      sectionName,
+		".name":      name,
 		".type":      entry.Type,
 		".anonymous": entry.Anonymous,
 		".index":     entry.Index,
@@ -887,6 +906,7 @@ func deepCopyCommitted(in map[string]map[string]section) map[string]map[string]s
 		cfgOut := map[string]section{}
 		for name, sec := range sections {
 			cfgOut[name] = section{
+				Name:      sec.Name,
 				Type:      sec.Type,
 				Anonymous: sec.Anonymous,
 				Index:     sec.Index,
