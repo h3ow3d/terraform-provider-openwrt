@@ -1,0 +1,35 @@
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": [
+    0,
+    {
+      "values": {
+        "cfg0001": {
+          ".anonymous": true,
+          ".index": 0,
+          ".name": "cfg0001",
+          ".type": "dnsmasq",
+          "domainneeded": "1",
+          "local": "/placeholder/"
+        },
+        "cfg0002": {
+          ".anonymous": true,
+          ".index": 1,
+          ".name": "cfg0002",
+          ".type": "dhcp",
+          "interface": "placeholder0",
+          "start": "100"
+        },
+        "tfdom_tf_provider_probe_invali_6f49c8925438a00d": {
+          ".anonymous": false,
+          ".index": 9,
+          ".name": "tfdom_tf_provider_probe_invali_6f49c8925438a00d",
+          ".type": "domain",
+          "ip": "192.0.2.1",
+          "name": "tf-provider-probe.invalid"
+        }
+      }
+    }
+  ]
+}

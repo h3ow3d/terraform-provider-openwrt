@@ -54,6 +54,7 @@ type SessionInfo struct {
 type section struct {
 	Type      string
 	Anonymous bool
+	Index     int
 	Values    map[string]any
 }
 
@@ -83,6 +84,7 @@ type Server struct {
 	mu             sync.Mutex
 	seq            int
 	nextAnonNumber int
+	nextIndex      int
 	sessions       map[string]*mockSession
 	committed      map[string]map[string]section
 	pendingApply   *pendingApply
@@ -95,12 +97,14 @@ func NewServer() *Server {
 		sessionTimeout: 45 * time.Second,
 		now:            time.Now,
 		nextAnonNumber: 1,
+		nextIndex:      1,
 		sessions:       map[string]*mockSession{},
 		committed: map[string]map[string]section{
 			"dhcp": {
 				sentinelSectionName: {
 					Type:      "domain",
 					Anonymous: false,
+					Index:     0,
 					Values: map[string]any{
 						"name": "sentinel.invalid",
 						"ip":   "203.0.113.99",
@@ -219,6 +223,7 @@ func (s *Server) Section(config, sectionName string) (map[string]any, bool) {
 		".name":      sectionName,
 		".type":      entry.Type,
 		".anonymous": entry.Anonymous,
+		".index":     entry.Index,
 	}
 	for key, value := range entry.Values {
 		values[key] = value
@@ -239,6 +244,7 @@ func (s *Server) PackageSnapshot(config string) map[string]map[string]any {
 			".name":      sectionName,
 			".type":      entry.Type,
 			".anonymous": entry.Anonymous,
+			".index":     entry.Index,
 		}
 		for key, value := range entry.Values {
 			values[key] = value
@@ -458,19 +464,19 @@ func (s *Server) handleUCIGet(w http.ResponseWriter, id any, token string, args 
 
 	if sectionName == "" {
 		if len(view) == 0 {
-			s.writeRPCResult(w, id, []any{0, map[string]any{"values": []any{}}})
+			s.writeRPCResult(w, id, []any{0, map[string]any{"values": map[string]any{}}})
 			return
 		}
-		names := make([]any, 0, len(view))
+		values := map[string]any{}
 		sections := make([]string, 0, len(view))
 		for name := range view {
 			sections = append(sections, name)
 		}
 		slices.Sort(sections)
 		for _, name := range sections {
-			names = append(names, name)
+			values[name] = sectionToValues(name, view[name])
 		}
-		s.writeRPCResult(w, id, []any{0, map[string]any{"values": names}})
+		s.writeRPCResult(w, id, []any{0, map[string]any{"values": values}})
 		return
 	}
 
@@ -517,9 +523,12 @@ func (s *Server) handleUCIAdd(w http.ResponseWriter, id any, token string, args 
 	}
 
 	s.ensureSessionConfigLocked(session, config)
+	sectionIndex := s.nextIndex
+	s.nextIndex++
 	session.staged.sections[config][sectionName] = section{
 		Type:      typ,
 		Anonymous: false,
+		Index:     sectionIndex,
 		Values:    deepCopyMap(values),
 	}
 	session.staged.changes[config] = append(session.staged.changes[config], []any{"set", sectionName, typ})
@@ -707,6 +716,7 @@ func (s *Server) setCommittedSectionLocked(config, sectionName string, entry sec
 	pkg[sectionName] = section{
 		Type:      entry.Type,
 		Anonymous: entry.Anonymous,
+		Index:     entry.Index,
 		Values:    deepCopyMap(entry.Values),
 	}
 }
@@ -744,6 +754,7 @@ func (s *Server) commitConfigLocked(session *mockSession, config string) {
 			pkg[sectionName] = section{
 				Type:      entry.Type,
 				Anonymous: entry.Anonymous,
+				Index:     entry.Index,
 				Values:    deepCopyMap(entry.Values),
 			}
 		}
@@ -760,6 +771,7 @@ func (s *Server) sessionViewLocked(token, config string) map[string]section {
 			view[sectionName] = section{
 				Type:      entry.Type,
 				Anonymous: entry.Anonymous,
+				Index:     entry.Index,
 				Values:    deepCopyMap(entry.Values),
 			}
 		}
@@ -780,6 +792,7 @@ func (s *Server) sessionViewLocked(token, config string) map[string]section {
 		view[sectionName] = section{
 			Type:      entry.Type,
 			Anonymous: entry.Anonymous,
+			Index:     entry.Index,
 			Values:    deepCopyMap(entry.Values),
 		}
 	}
@@ -839,6 +852,7 @@ func sectionToValues(sectionName string, entry section) map[string]any {
 		".name":      sectionName,
 		".type":      entry.Type,
 		".anonymous": entry.Anonymous,
+		".index":     entry.Index,
 	}
 	for key, value := range entry.Values {
 		values[key] = value
@@ -875,6 +889,7 @@ func deepCopyCommitted(in map[string]map[string]section) map[string]map[string]s
 			cfgOut[name] = section{
 				Type:      sec.Type,
 				Anonymous: sec.Anonymous,
+				Index:     sec.Index,
 				Values:    deepCopyMap(sec.Values),
 			}
 		}
