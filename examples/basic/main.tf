@@ -39,9 +39,49 @@ resource "openwrt_dhcp_pool" "probe" {
   ra        = "disabled"
 }
 
+resource "openwrt_network" "probe" {
+  name      = "vlan30"
+  device    = "br-vlan20"
+  proto     = "static"
+  cidr      = "192.168.30.1/24"
+  delegate  = false
+  ip6assign = 60
+  dns       = ["192.168.30.1"]
+}
+
+resource "openwrt_firewall_rule" "probe" {
+  name      = "allow-dns"
+  src       = "runner"
+  dest      = "wan"
+  target    = "ACCEPT"
+  proto     = "udp"
+  dest_port = "53"
+  family    = "ipv4"
+}
+
+resource "openwrt_interface" "probe" {
+  name      = "vlan20"
+  device    = "br-vlan20"
+  proto     = "static"
+  cidr      = "192.168.20.1/24"
+  delegate  = false
+  ip6assign = 60
+  dns       = ["192.168.20.1"]
+}
+
 resource "openwrt_wireguard_interface" "probe" {
   name        = "wg_runner"
   private_key = "base64-test-private-key="
   listen_port = 51820
   addresses   = ["10.42.0.1/24"]
+}
+
+resource "openwrt_wireguard_peer" "probe" {
+  name                 = "actions"
+  interface            = openwrt_wireguard_interface.probe.name
+  public_key           = "base64-test-public-key="
+  allowed_ips          = ["10.1.0.1/32"]
+  endpoint_host        = "vpn.example.net"
+  endpoint_port        = 51820
+  persistent_keepalive = 25
 }

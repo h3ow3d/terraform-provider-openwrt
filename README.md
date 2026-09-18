@@ -39,7 +39,11 @@ Provider args can also be set with environment variables:
 - `openwrt_domain`
 - `openwrt_dhcp_host`
 - `openwrt_dhcp_pool`
+- `openwrt_firewall_rule`
+- `openwrt_network`
+- `openwrt_interface`
 - `openwrt_wireguard_interface`
+- `openwrt_wireguard_peer`
 
 See [examples/basic/main.tf](examples/basic/main.tf) for a minimal end-to-end spec using all currently supported resources.
 
@@ -49,7 +53,7 @@ Resources use HTTP ubus UCI operations through the LuCI JSON-RPC endpoint. The p
 
 ## Known limitations
 
-- `openwrt_device`, `openwrt_domain`, `openwrt_dhcp_host`, `openwrt_dhcp_pool`, and `openwrt_wireguard_interface` are currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
+- `openwrt_device`, `openwrt_domain`, `openwrt_dhcp_host`, `openwrt_dhcp_pool`, `openwrt_firewall_rule`, `openwrt_network`, `openwrt_interface`, `openwrt_wireguard_interface`, and `openwrt_wireguard_peer` are currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
 - Migrate existing unmanaged OpenWrt configs gradually and validate each step.
 
 ## Documentation

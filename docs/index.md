@@ -39,7 +39,7 @@ All three values are required either in configuration or env vars.
 
 ## Current Limitations
 
-- `openwrt_device`, `openwrt_domain`, `openwrt_dhcp_host`, `openwrt_dhcp_pool`, and `openwrt_wireguard_interface` are currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
+- `openwrt_device`, `openwrt_domain`, `openwrt_dhcp_host`, `openwrt_dhcp_pool`, `openwrt_firewall_rule`, `openwrt_network`, `openwrt_interface`, `openwrt_wireguard_interface`, and `openwrt_wireguard_peer` are currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
 - Migration from pre-existing unmanaged config should be done carefully and incrementally.
 
 ## Resources
@@ -48,4 +48,8 @@ All three values are required either in configuration or env vars.
 - `openwrt_domain`
 - `openwrt_dhcp_host`
 - `openwrt_dhcp_pool`
+- `openwrt_firewall_rule`
+- `openwrt_network`
+- `openwrt_interface`
 - `openwrt_wireguard_interface`
+- `openwrt_wireguard_peer`

@@ -9,7 +9,11 @@ import (
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/dhcphost"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/dhcppool"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/domain"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/firewallrule"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/network"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/networkinterface"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/wireguardinterface"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/wireguardpeer"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -106,7 +110,11 @@ func (p *OpenWRTProvider) Resources(ctx context.Context) []func() resource.Resou
 		dhcphost.NewResource,
 		dhcppool.NewResource,
 		domain.NewResource,
+		firewallrule.NewResource,
+		network.NewResource,
+		networkinterface.NewResource,
 		wireguardinterface.NewResource,
+		wireguardpeer.NewResource,
 	}
 }
 
