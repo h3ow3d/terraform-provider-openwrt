@@ -39,11 +39,12 @@ All three values are required either in configuration or env vars.
 
 ## Current Limitations
 
-- `openwrt_domain`, `openwrt_dhcp_host`, and `openwrt_dhcp_pool` are currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
+- `openwrt_device`, `openwrt_domain`, `openwrt_dhcp_host`, and `openwrt_dhcp_pool` are currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
 - Migration from pre-existing unmanaged config should be done carefully and incrementally.
 
 ## Resources
 
+- `openwrt_device`
 - `openwrt_domain`
 - `openwrt_dhcp_host`
 - `openwrt_dhcp_pool`

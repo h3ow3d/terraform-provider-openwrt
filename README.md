@@ -35,6 +35,7 @@ Provider args can also be set with environment variables:
 
 ## Resource scope
 
+- `openwrt_device`
 - `openwrt_domain`
 - `openwrt_dhcp_host`
 - `openwrt_dhcp_pool`
@@ -47,7 +48,7 @@ Resources use HTTP ubus UCI operations through the LuCI JSON-RPC endpoint. The p
 
 ## Known limitations
 
-- `openwrt_domain`, `openwrt_dhcp_host`, and `openwrt_dhcp_pool` are currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
+- `openwrt_device`, `openwrt_domain`, `openwrt_dhcp_host`, and `openwrt_dhcp_pool` are currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
 - Migrate existing unmanaged OpenWrt configs gradually and validate each step.
 
 ## Documentation

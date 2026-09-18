@@ -9,6 +9,12 @@ terraform {
 provider "openwrt" {
 }
 
+resource "openwrt_device" "probe" {
+  name  = "br-vlan20"
+  type  = "bridge"
+  ports = ["lan2"]
+}
+
 resource "openwrt_domain" "probe" {
   name = "tf-provider-probe.invalid"
   ip   = "192.0.2.1"
