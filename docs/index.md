@@ -34,23 +34,14 @@ All three values are required either in configuration or env vars.
 
 ## Operational Behavior
 
-- Resources write only provider-managed blocks to OpenWrt config files under `/etc/config`.
-- On apply, resources commit the affected UCI package and restart the relevant service.
-- If a commit or restart fails, the provider attempts to roll back changed files.
+- Resources use HTTP ubus UCI operations through the LuCI JSON-RPC endpoint.
+- The provider does not use SSH, direct config-file writes, `file.exec`, or service restarts.
 
 ## Current Limitations
 
-- Resource `Read` operations are lightweight and do not yet perform full remote drift reconciliation.
+- Only `openwrt_domain` is currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
 - Migration from pre-existing unmanaged config should be done carefully and incrementally.
 
 ## Resources
 
-- `openwrt_device`
 - `openwrt_domain`
-- `openwrt_segment`
-- `openwrt_network`
-- `openwrt_dhcp_pool`
-- `openwrt_dhcp_host`
-- `openwrt_firewall_rule`
-- `openwrt_wireguard_interface`
-- `openwrt_wireguard_peer`

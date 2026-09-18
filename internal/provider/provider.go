@@ -4,17 +4,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/luci"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/modernubus"
-	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/device"
-	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/dhcphost"
-	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/dhcppool"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/domain"
-	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/firewallrule"
-	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/network"
-	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/segment"
-	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/wireguardinterface"
-	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/wireguardpeer"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -91,20 +82,14 @@ func (p *OpenWRTProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 
-	client := luci.NewClient(luci.Config{
-		Remote:   remote,
-		User:     user,
-		Password: password,
-	})
 	modernClient := modernubus.NewClient(modernubus.Config{
 		Remote:   remote,
 		User:     user,
 		Password: password,
 	})
-	bundle := newClientBundle(client, modernClient)
 
-	resp.ResourceData = bundle
-	resp.DataSourceData = bundle
+	resp.ResourceData = modernClient
+	resp.DataSourceData = modernClient
 }
 
 func (p *OpenWRTProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
@@ -113,15 +98,7 @@ func (p *OpenWRTProvider) DataSources(ctx context.Context) []func() datasource.D
 
 func (p *OpenWRTProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		device.NewResource,
 		domain.NewResource,
-		segment.NewResource,
-		network.NewResource,
-		dhcppool.NewResource,
-		dhcphost.NewResource,
-		firewallrule.NewResource,
-		wireguardinterface.NewResource,
-		wireguardpeer.NewResource,
 	}
 }
 

@@ -49,7 +49,7 @@ func TestIntegrationReadOnlySystemBoardAndUCIGet(t *testing.T) {
 	}
 }
 
-func TestIntegrationPhase2AStagedAddChangesAndRevert(t *testing.T) {
+func TestIntegrationStagedAddChangesAndRevert(t *testing.T) {
 	cfg, ok := integrationConfigFromEnv(t)
 	if !ok {
 		return

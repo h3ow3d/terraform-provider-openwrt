@@ -34,10 +34,6 @@ const (
 var validDomainChar = regexp.MustCompile(`^[a-z0-9._-]+$`)
 var nonSectionChar = regexp.MustCompile(`[^a-z0-9_]+`)
 
-type modernProviderData interface {
-	ModernUBUS() *modernubus.Client
-}
-
 type ubusDomainClient interface {
 	CurrentRPCURL() (string, error)
 	EnsureSessionLifetime(ctx context.Context, minLifetime time.Duration) error
@@ -93,17 +89,12 @@ func (r *Resource) Configure(ctx context.Context, req resource.ConfigureRequest,
 	if req.ProviderData == nil {
 		return
 	}
-	providerData, ok := req.ProviderData.(modernProviderData)
+	client, ok := req.ProviderData.(*modernubus.Client)
 	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data type", fmt.Sprintf("Expected provider data with modern ubus client, got %T", req.ProviderData))
+		resp.Diagnostics.AddError("Unexpected provider data type", fmt.Sprintf("Expected *modernubus.Client, got %T", req.ProviderData))
 		return
 	}
-	modern := providerData.ModernUBUS()
-	if modern == nil {
-		resp.Diagnostics.AddError("Missing modern ubus client", "Provider data did not include a modern ubus client for domain resource.")
-		return
-	}
-	r.client = modern
+	r.client = client
 }
 
 func (r *Resource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

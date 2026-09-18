@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	mockAccAddress      = "openwrt_domain.phase3a_probe"
+	mockAccAddress      = "openwrt_domain.probe"
 	mockAccInitialName  = "tf-provider-probe.invalid"
 	mockAccRenamedName  = "tf-provider-probe-renamed.invalid"
 	mockAccInitialIP    = "192.0.2.1"
@@ -235,7 +235,7 @@ provider "openwrt" {
   password = "dummy-pass"
 }
 
-resource "openwrt_domain" "phase3a_probe" {
+resource "openwrt_domain" "probe" {
   name = %q
   ip   = %q
 }

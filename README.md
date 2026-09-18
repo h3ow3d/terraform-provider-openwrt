@@ -35,29 +35,15 @@ Provider args can also be set with environment variables:
 
 ## Resource scope
 
-- `openwrt_device`
 - `openwrt_domain`
-- `openwrt_segment`
-- `openwrt_network`
-- `openwrt_dhcp_pool`
-- `openwrt_dhcp_host`
-- `openwrt_firewall_rule`
-- `openwrt_wireguard_interface`
-- `openwrt_wireguard_peer`
 
 ## How apply works
 
-Resources write provider-managed blocks in `/etc/config/*` files, then:
-
-1. run `uci commit` for affected package(s)
-2. restart affected service(s)
-
-If apply fails during commit/restart, the provider attempts rollback of modified files.
+Resources use HTTP ubus UCI operations through the LuCI JSON-RPC endpoint. The provider does not use SSH, direct config-file writes, `file.exec`, or service restarts.
 
 ## Known limitations
 
-- Read operations are intentionally lightweight and currently do not perform full remote drift reconciliation.
-- Some schema fields are currently forward-compatibility fields and not yet fully rendered into dedicated UCI structures (called out in per-resource docs).
+- Only `openwrt_domain` is currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
 - Migrate existing unmanaged OpenWrt configs gradually and validate each step.
 
 ## Documentation
