@@ -2,6 +2,8 @@ package device
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -23,10 +25,14 @@ const (
 	networkPackage         = "network"
 	deviceSectionType      = "device"
 	defaultApplyTimeoutSec = int64(10)
+	sectionPrefix          = "tfdev_"
+	sectionReadableMax     = 24
+	sectionHashHexLen      = 16
 	maxNameLength          = 63
 )
 
 var validNameChar = regexp.MustCompile(`^[a-z0-9._-]+$`)
+var nonSectionChar = regexp.MustCompile(`[^a-z0-9_]+`)
 
 type ubusDeviceClient interface {
 	CurrentRPCURL() (string, error)
@@ -193,8 +199,9 @@ func (r *Resource) ImportState(ctx context.Context, req resource.ImportStateRequ
 
 func createDevice(ctx context.Context, client ubusDeviceClient, desired ResourceModel, applyTimeoutSec int64) error {
 	name := desired.Name.ValueString()
+	section := sectionNameForDevice(name)
 	return client.RunMutationTransaction(ctx, transactionLifetime(applyTimeoutSec), func(txCtx context.Context) error {
-		existing, err := client.UCIGet(txCtx, modernubus.UCIGetRequest{Config: networkPackage, Section: name})
+		existing, err := client.UCIGet(txCtx, modernubus.UCIGetRequest{Config: networkPackage, Section: section})
 		if err != nil {
 			return err
 		}
@@ -204,13 +211,13 @@ func createDevice(ctx context.Context, client ubusDeviceClient, desired Resource
 		added, err := client.UCIAdd(txCtx, modernubus.UCIAddRequest{
 			Config: networkPackage,
 			Type:   deviceSectionType,
-			Name:   name,
+			Name:   section,
 			Values: deviceValues(desired),
 		})
 		if err != nil {
 			return err
 		}
-		if added.Section != name {
+		if added.Section != section {
 			return fmt.Errorf("uci.add created unexpected section name")
 		}
 		return applyVerifyConfirm(txCtx, ctx, client, desired, applyTimeoutSec)
@@ -218,7 +225,7 @@ func createDevice(ctx context.Context, client ubusDeviceClient, desired Resource
 }
 
 func updateDevice(ctx context.Context, client ubusDeviceClient, desired ResourceModel, applyTimeoutSec int64) error {
-	section := desired.Name.ValueString()
+	section := sectionNameForDevice(desired.Name.ValueString())
 	return client.RunMutationTransaction(ctx, transactionLifetime(applyTimeoutSec), func(txCtx context.Context) error {
 		existing, err := client.UCIGet(txCtx, modernubus.UCIGetRequest{Config: networkPackage, Section: section})
 		if err != nil {
@@ -240,15 +247,16 @@ func updateDevice(ctx context.Context, client ubusDeviceClient, desired Resource
 }
 
 func deleteDevice(ctx context.Context, client ubusDeviceClient, name string, applyTimeoutSec int64) error {
+	section := sectionNameForDevice(name)
 	return client.RunMutationTransaction(ctx, transactionLifetime(applyTimeoutSec), func(txCtx context.Context) error {
-		existing, err := client.UCIGet(txCtx, modernubus.UCIGetRequest{Config: networkPackage, Section: name})
+		existing, err := client.UCIGet(txCtx, modernubus.UCIGetRequest{Config: networkPackage, Section: section})
 		if err != nil {
 			return err
 		}
 		if !existing.SectionExists {
 			return nil
 		}
-		if _, err := client.UCIDelete(txCtx, modernubus.UCIDeleteRequest{Config: networkPackage, Section: name}); err != nil {
+		if _, err := client.UCIDelete(txCtx, modernubus.UCIDeleteRequest{Config: networkPackage, Section: section}); err != nil {
 			return err
 		}
 		if _, err := client.UCIApply(txCtx, modernubus.UCIApplyRequest{Rollback: true, Timeout: applyTimeoutSec}); err != nil {
@@ -257,7 +265,7 @@ func deleteDevice(ctx context.Context, client ubusDeviceClient, name string, app
 		if err := verifyRouterHealth(ctx, client); err != nil {
 			return err
 		}
-		readBack, err := client.UCIGet(txCtx, modernubus.UCIGetRequest{Config: networkPackage, Section: name})
+		readBack, err := client.UCIGet(txCtx, modernubus.UCIGetRequest{Config: networkPackage, Section: section})
 		if err != nil {
 			return err
 		}
@@ -360,8 +368,27 @@ func canonicalName(value string) (string, error) {
 	return canonical, nil
 }
 
+func sectionNameForDevice(name string) string {
+	canonical, err := canonicalName(name)
+	if err != nil {
+		canonical = "invalid"
+	}
+	readable := strings.ReplaceAll(canonical, ".", "_")
+	readable = strings.ReplaceAll(readable, "-", "_")
+	readable = nonSectionChar.ReplaceAllString(readable, "_")
+	readable = strings.Trim(readable, "_")
+	if readable == "" {
+		readable = "device"
+	}
+	if len(readable) > sectionReadableMax {
+		readable = readable[:sectionReadableMax]
+	}
+	hash := sha256.Sum256([]byte(canonical))
+	return sectionPrefix + readable + "_" + hex.EncodeToString(hash[:])[:sectionHashHexLen]
+}
+
 func readLiveDevice(ctx context.Context, client ubusDeviceClient, name string) (ResourceModel, bool, error) {
-	resp, err := client.UCIGet(ctx, modernubus.UCIGetRequest{Config: networkPackage, Section: name})
+	resp, err := client.UCIGet(ctx, modernubus.UCIGetRequest{Config: networkPackage, Section: sectionNameForDevice(name)})
 	if err != nil {
 		return ResourceModel{}, false, err
 	}

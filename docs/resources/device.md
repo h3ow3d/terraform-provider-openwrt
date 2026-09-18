@@ -24,7 +24,7 @@ resource "openwrt_device" "runner_bridge" {
 
 ## Behavior
 
-- Uses a named `config device` section in `network` package.
+- Uses a deterministic provider-owned `config device` section in `network` package.
 - Applies staged changes with rollback enabled and confirms after health and read-back checks.
 - Reads live UCI state for drift and absence detection.
 - Removes the `ports` option when omitted from configuration.

@@ -67,7 +67,7 @@ func TestAccOpenWRTDeviceMockLifecycle(t *testing.T) {
 	runCommand(t, workspace, env, tofuExe, "apply", "-parallelism=1", "-input=false", "-no-color", updatePlan)
 	assertDeviceSection(t, mock, nil)
 
-	section := mockName
+	section := sectionNameForDevice(mockName)
 	if err := mock.InjectOutOfBandOption("network", section, "type", "8021q"); err != nil {
 		t.Fatalf("inject drift: %v", err)
 	}
@@ -127,7 +127,7 @@ resource "openwrt_device" "probe" {
 
 func assertDeviceSection(t *testing.T, mock *ubusmock.Server, ports []string) {
 	t.Helper()
-	section, exists := mock.Section("network", mockName)
+	section, exists := mock.Section("network", sectionNameForDevice(mockName))
 	if !exists {
 		t.Fatal("managed network device section not found")
 	}

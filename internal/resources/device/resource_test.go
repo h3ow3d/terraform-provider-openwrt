@@ -143,6 +143,9 @@ func TestCreateUpdateReadDeleteLifecycleHelpers(t *testing.T) {
 	if len(client.addReqs) != 1 || client.addReqs[0].Type != deviceSectionType {
 		t.Fatalf("unexpected add request: %#v", client.addReqs)
 	}
+	if client.addReqs[0].Name != sectionNameForDevice("br-vlan20") {
+		t.Fatalf("unexpected section name: %q", client.addReqs[0].Name)
+	}
 	updated := normalizedDevice(t, "br-vlan20", "bridge", nil)
 	if err := updateDevice(context.Background(), client, updated, 10); err != nil {
 		t.Fatalf("update failed: %v", err)
@@ -167,7 +170,7 @@ func TestCreateUpdateReadDeleteLifecycleHelpers(t *testing.T) {
 
 func TestReadDeviceParsesPortsListAndFallbackName(t *testing.T) {
 	client := &fakeDeviceClient{values: map[string]modernubus.UCIGetResponse{}}
-	client.setResponse("br-vlan20", map[string]any{
+	client.setResponse(sectionNameForDevice("br-vlan20"), map[string]any{
 		"type":  "bridge",
 		"ports": []string{"lan2", "lan1"},
 	})
