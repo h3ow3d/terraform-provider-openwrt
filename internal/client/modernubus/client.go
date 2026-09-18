@@ -189,8 +189,19 @@ type UCIGetResponse struct {
 	EmptyPackage   bool
 	HasValues      bool
 	Values         map[string]UCIValue
+	Sections       map[string]UCISection
 	MetadataName   string
 	MetadataType   string
+	MetadataIndex  *int
+	MetadataIsAnon *bool
+}
+
+type UCISection struct {
+	Key            string
+	Values         map[string]UCIValue
+	MetadataName   string
+	MetadataType   string
+	MetadataIndex  *int
 	MetadataIsAnon *bool
 }
 
@@ -382,6 +393,7 @@ func (c *Client) UCIGet(ctx context.Context, req UCIGetRequest) (UCIGetResponse,
 		SectionExists: req.Section == "",
 		OptionExists:  req.Option == "",
 		Values:        map[string]UCIValue{},
+		Sections:      map[string]UCISection{},
 	}
 
 	if payload.Values == nil {
@@ -399,34 +411,60 @@ func (c *Client) UCIGet(ctx context.Context, req UCIGetRequest) (UCIGetResponse,
 		return out, nil
 	case map[string]any:
 		out.SectionExists = true
+		if req.Section == "" {
+			out.EmptyPackage = len(raw) == 0
+			for key, value := range raw {
+				body, ok := value.(map[string]any)
+				if !ok {
+					return UCIGetResponse{}, &MalformedResponseError{
+						Object: "uci",
+						Method: "get",
+						Cause:  fmt.Errorf("section %q has unexpected type %T", key, value),
+					}
+				}
+				section := UCISection{Key: key, Values: map[string]UCIValue{}}
+				populateUCIValues(body, section.Values, &section.MetadataName, &section.MetadataType, &section.MetadataIndex, &section.MetadataIsAnon)
+				out.Sections[key] = section
+			}
+			return out, nil
+		}
 		if req.Option != "" {
 			_, ok := raw[req.Option]
 			out.OptionExists = ok
 		}
-		for k, v := range raw {
-			out.Values[k] = UCIValue{raw: v}
-			switch k {
-			case ".name":
-				if s, ok := v.(string); ok {
-					out.MetadataName = s
-				}
-			case ".type":
-				if s, ok := v.(string); ok {
-					out.MetadataType = s
-				}
-			case ".anonymous":
-				if b, ok := v.(bool); ok {
-					val := b
-					out.MetadataIsAnon = &val
-				}
-			}
-		}
+		populateUCIValues(raw, out.Values, &out.MetadataName, &out.MetadataType, &out.MetadataIndex, &out.MetadataIsAnon)
 		return out, nil
 	default:
 		return UCIGetResponse{}, &MalformedResponseError{
 			Object: "uci",
 			Method: "get",
 			Cause:  fmt.Errorf("unexpected values type %T", raw),
+		}
+	}
+}
+
+func populateUCIValues(raw map[string]any, values map[string]UCIValue, metadataName, metadataType *string, metadataIndex **int, metadataIsAnon **bool) {
+	for key, value := range raw {
+		values[key] = UCIValue{raw: value}
+		switch key {
+		case ".name":
+			if parsed, ok := value.(string); ok {
+				*metadataName = parsed
+			}
+		case ".type":
+			if parsed, ok := value.(string); ok {
+				*metadataType = parsed
+			}
+		case ".index":
+			if parsed, ok := value.(float64); ok && parsed == float64(int(parsed)) {
+				index := int(parsed)
+				*metadataIndex = &index
+			}
+		case ".anonymous":
+			if parsed, ok := value.(bool); ok {
+				isAnon := parsed
+				*metadataIsAnon = &isAnon
+			}
 		}
 	}
 }

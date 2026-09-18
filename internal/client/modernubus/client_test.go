@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +28,79 @@ func decodeRPCRequest(t *testing.T, r *http.Request) rpcRequest {
 		t.Fatalf("decode request: %v", err)
 	}
 	return req
+}
+
+func TestUCIGetPackageNormalizesObjectValues(t *testing.T) {
+	t.Parallel()
+
+	fixture, err := os.ReadFile(filepath.Join("..", "..", "testutil", "ucinorm", "testdata", "flint2_dhcp_get_sanitized.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPCRequest(t, r)
+		if req.Params[1].(string) == "session" {
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":300}]}`))
+			return
+		}
+		_, _ = w.Write(fixture)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
+	resp, err := client.UCIGet(context.Background(), UCIGetRequest{Config: "dhcp"})
+	if err != nil {
+		t.Fatalf("uci.get failed: %v", err)
+	}
+	if resp.Package != "dhcp" || !resp.PackageExists || resp.EmptyPackage {
+		t.Fatalf("unexpected package identity: %#v", resp)
+	}
+	if len(resp.Sections) != 3 {
+		t.Fatalf("expected 3 sections, got %d", len(resp.Sections))
+	}
+	section := resp.Sections["tfdom_tf_provider_probe_invali_6f49c8925438a00d"]
+	if section.Key == "" || section.MetadataType != "domain" || section.MetadataName != section.Key {
+		t.Fatalf("unexpected managed section metadata: %#v", section)
+	}
+	if section.MetadataIndex == nil || *section.MetadataIndex != 9 || section.MetadataIsAnon == nil || *section.MetadataIsAnon {
+		t.Fatalf("unexpected managed section index/anonymous metadata: %#v", section)
+	}
+	name, nameOK := section.Values["name"].String()
+	ip, ipOK := section.Values["ip"].String()
+	if !nameOK || name != "tf-provider-probe.invalid" || !ipOK || ip != "192.0.2.1" {
+		t.Fatalf("unexpected managed section options: %#v", section.Values)
+	}
+}
+
+func TestUCIGetPackagePreservesMapKeySeparatelyFromMetadataName(t *testing.T) {
+	t.Parallel()
+
+	fixture, err := os.ReadFile(filepath.Join("..", "..", "testutil", "ucinorm", "testdata", "flint2_dhcp_get_sanitized.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPCRequest(t, r)
+		if req.Params[1].(string) == "session" {
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"tokA","timeout":300}]}`))
+			return
+		}
+		_, _ = w.Write(fixture)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{Remote: server.URL, User: "root", Password: "secret"})
+	resp, err := client.UCIGet(context.Background(), UCIGetRequest{Config: "dhcp"})
+	if err != nil {
+		t.Fatalf("uci.get failed: %v", err)
+	}
+	section, ok := resp.Sections["container_lan"]
+	if !ok {
+		t.Fatal("section map key container_lan was not preserved")
+	}
+	if section.Key != "container_lan" || section.MetadataName != "lan" || section.Key == section.MetadataName {
+		t.Fatalf("section key and .name metadata were conflated: %#v", section)
+	}
 }
 
 func TestCallUsesModernEndpointAndRPCShape(t *testing.T) {
