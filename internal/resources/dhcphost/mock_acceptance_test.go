@@ -57,7 +57,6 @@ func TestAccOpenWRTDHCPHostMockLifecycle(t *testing.T) {
 	}
 	env := tofuEnvironment(cliConfig)
 	writeConfig(t, workspace, mock.URL(), mockInitialIP, true)
-	runCommand(t, workspace, env, tofuExe, "init", "-input=false", "-no-color")
 	runCommand(t, workspace, env, tofuExe, "validate", "-no-color")
 
 	createPlan := filepath.Join(workspace, "create.tfplan")
@@ -109,6 +108,7 @@ func writeConfig(t *testing.T, workspace, remote, ip string, includeMAC bool) {
   required_providers {
     openwrt = {
       source = %q
+			version = "0.2.3"
     }
   }
 }

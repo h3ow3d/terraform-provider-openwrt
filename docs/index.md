@@ -9,7 +9,7 @@ terraform {
   required_providers {
     openwrt = {
       source  = "h3ow3d/openwrt"
-      version = "0.2.1"
+      version = "0.2.3"
     }
   }
 }
@@ -39,7 +39,7 @@ All three values are required either in configuration or env vars.
 
 ## Current Limitations
 
-- `openwrt_device`, `openwrt_domain`, `openwrt_dhcp_host`, and `openwrt_dhcp_pool` are currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
+- `openwrt_device`, `openwrt_domain`, `openwrt_dhcp_host`, `openwrt_dhcp_pool`, and `openwrt_wireguard_interface` are currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
 - Migration from pre-existing unmanaged config should be done carefully and incrementally.
 
 ## Resources
@@ -48,3 +48,4 @@ All three values are required either in configuration or env vars.
 - `openwrt_domain`
 - `openwrt_dhcp_host`
 - `openwrt_dhcp_pool`
+- `openwrt_wireguard_interface`

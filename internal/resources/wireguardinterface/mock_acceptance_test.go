@@ -1,4 +1,4 @@
-package dhcppool
+package wireguardinterface
 
 import (
 	"fmt"
@@ -12,16 +12,12 @@ import (
 )
 
 const (
-	mockAddress      = "openwrt_dhcp_pool.probe"
-	mockName         = "tf-provider-pool-probe"
-	mockInterface    = "vlan30"
-	mockStart        = int64(100)
-	mockLimit        = int64(50)
-	mockLeaseTime    = "12h"
+	mockAddress      = "openwrt_wireguard_interface.probe"
+	mockName         = "wg_runner"
 	mockProviderHost = "registry.terraform.io/h3ow3d/openwrt"
 )
 
-func TestAccOpenWRTDHCPPoolMockLifecycle(t *testing.T) {
+func TestAccOpenWRTWireGuardInterfaceMockLifecycle(t *testing.T) {
 	if os.Getenv("TF_ACC") != "1" || os.Getenv("OPENWRT_ACC_TARGET") != "mock" {
 		t.Skip("set TF_ACC=1 OPENWRT_ACC_TARGET=mock to run mock acceptance")
 	}
@@ -55,33 +51,32 @@ func TestAccOpenWRTDHCPPoolMockLifecycle(t *testing.T) {
 		t.Fatalf("create workspace: %v", err)
 	}
 	env := tofuEnvironment(cliConfig)
-	writeConfig(t, workspace, mock.URL(), mockStart, mockLimit, mockLeaseTime, true)
+	writeConfig(t, workspace, mock.URL(), "base64-test-private-key=", 51820, []string{"10.42.0.1/24", "fd00:42::1/64"})
 	runCommand(t, workspace, env, tofuExe, "validate", "-no-color")
 
 	createPlan := filepath.Join(workspace, "create.tfplan")
 	requirePlanSummary(t, runCommand(t, workspace, env, tofuExe, "plan", "-parallelism=1", "-input=false", "-no-color", "-out", createPlan), "Plan: 1 to add, 0 to change, 0 to destroy.")
 	runCommand(t, workspace, env, tofuExe, "apply", "-parallelism=1", "-input=false", "-no-color", createPlan)
-	assertPoolSection(t, mock, mockStart, mockLimit, mockLeaseTime, true)
+	assertWGSection(t, mock, 51820, []string{"10.42.0.1/24", "fd00:42::1/64"})
 	assertNoChanges(t, workspace, env, tofuExe)
 
-	writeConfig(t, workspace, mock.URL(), 120, mockLimit, "6h", false)
+	writeConfig(t, workspace, mock.URL(), "base64-test-private-key-updated=", 0, nil)
 	updatePlan := filepath.Join(workspace, "update.tfplan")
 	requirePlanSummary(t, runCommand(t, workspace, env, tofuExe, "plan", "-parallelism=1", "-input=false", "-no-color", "-out", updatePlan), "Plan: 0 to add, 1 to change, 0 to destroy.")
 	runCommand(t, workspace, env, tofuExe, "apply", "-parallelism=1", "-input=false", "-no-color", updatePlan)
-	assertPoolSection(t, mock, 120, mockLimit, "6h", false)
+	assertWGSection(t, mock, 0, nil)
 
-	section := sectionNameForPool(mockName)
-	if err := mock.InjectOutOfBandOption("dhcp", section, "start", "130"); err != nil {
+	if err := mock.InjectOutOfBandOption("network", mockName, "private_key", "base64-drifted-key="); err != nil {
 		t.Fatalf("inject drift: %v", err)
 	}
 	driftPlan := filepath.Join(workspace, "drift.tfplan")
 	driftOutput := runCommand(t, workspace, env, tofuExe, "plan", "-parallelism=1", "-input=false", "-no-color", "-out", driftPlan)
 	requirePlanSummary(t, driftOutput, "Plan: 0 to add, 1 to change, 0 to destroy.")
-	if !strings.Contains(driftOutput, "130") || !strings.Contains(driftOutput, "120") {
+	if !strings.Contains(driftOutput, "private_key = (sensitive value)") {
 		t.Fatalf("plan did not expose remote drift:\n%s", driftOutput)
 	}
 	runCommand(t, workspace, env, tofuExe, "apply", "-parallelism=1", "-input=false", "-no-color", driftPlan)
-	assertPoolSection(t, mock, 120, mockLimit, "6h", false)
+	assertWGSection(t, mock, 0, nil)
 
 	runCommand(t, workspace, env, tofuExe, "state", "rm", mockAddress)
 	runCommand(t, workspace, env, tofuExe, "import", "-parallelism=1", mockAddress, mockName)
@@ -90,14 +85,26 @@ func TestAccOpenWRTDHCPPoolMockLifecycle(t *testing.T) {
 	destroyPlan := filepath.Join(workspace, "destroy.tfplan")
 	requirePlanSummary(t, runCommand(t, workspace, env, tofuExe, "plan", "-destroy", "-parallelism=1", "-input=false", "-no-color", "-out", destroyPlan), "Plan: 0 to add, 0 to change, 1 to destroy.")
 	runCommand(t, workspace, env, tofuExe, "apply", "-parallelism=1", "-input=false", "-no-color", destroyPlan)
-	if _, exists := mock.Section("dhcp", section); exists {
-		t.Fatal("managed DHCP pool remains after destroy")
+	if _, exists := mock.Section("network", mockName); exists {
+		t.Fatal("managed WireGuard interface remains after destroy")
 	}
-	assertRequestScope(t, mock, section)
+	assertRequestScope(t, mock, mockName)
 }
 
-func writeConfig(t *testing.T, workspace, remote string, start, limit int64, leasetime string, force bool) {
+func writeConfig(t *testing.T, workspace, remote, privateKey string, listenPort int64, addresses []string) {
 	t.Helper()
+	listenPortBlock := ""
+	if listenPort > 0 {
+		listenPortBlock = fmt.Sprintf("\n  listen_port = %d", listenPort)
+	}
+	addressesBlock := ""
+	if len(addresses) > 0 {
+		quoted := make([]string, 0, len(addresses))
+		for _, address := range addresses {
+			quoted = append(quoted, fmt.Sprintf("%q", address))
+		}
+		addressesBlock = fmt.Sprintf("\n  addresses   = [%s]", strings.Join(quoted, ", "))
+	}
 	configuration := fmt.Sprintf(`terraform {
   required_providers {
     openwrt = {
@@ -113,32 +120,39 @@ provider "openwrt" {
   password = "dummy-pass"
 }
 
-resource "openwrt_dhcp_pool" "probe" {
-  name      = %q
-  interface = %q
-  start     = %d
-  limit     = %d
-  leasetime = %q
-  force     = %t
-  dhcpv6    = "disabled"
-  ra        = "disabled"
+resource "openwrt_wireguard_interface" "probe" {
+  name        = %q
+  private_key = %q%s%s
 }
-`, mockProviderHost, remote, mockName, mockInterface, start, limit, leasetime, force)
+`, mockProviderHost, remote, mockName, privateKey, listenPortBlock, addressesBlock)
 	writeFile(t, filepath.Join(workspace, "main.tf"), configuration, 0o600)
 }
 
-func assertPoolSection(t *testing.T, mock *ubusmock.Server, start, limit int64, leasetime string, force bool) {
+func assertWGSection(t *testing.T, mock *ubusmock.Server, listenPort int64, addresses []string) {
 	t.Helper()
-	section, exists := mock.Section("dhcp", sectionNameForPool(mockName))
+	section, exists := mock.Section("network", mockName)
 	if !exists {
-		t.Fatal("managed DHCP pool section not found")
+		t.Fatal("managed WireGuard interface section not found")
 	}
-	expectedForce := "0"
-	if force {
-		expectedForce = "1"
+	if section[".type"] != interfaceSectionType || section["proto"] != "wireguard" {
+		t.Fatalf("unexpected WireGuard section: %#v", section)
 	}
-	if section[".type"] != poolSectionType || section["interface"] != mockInterface || section["start"] != fmt.Sprintf("%d", start) || section["limit"] != fmt.Sprintf("%d", limit) || section["leasetime"] != leasetime || section["force"] != expectedForce {
-		t.Fatalf("unexpected DHCP pool section: %#v", section)
+	if listenPort == 0 {
+		if _, ok := section["listen_port"]; ok {
+			t.Fatalf("expected listen_port to be absent: %#v", section)
+		}
+	} else if section["listen_port"] != fmt.Sprintf("%d", listenPort) {
+		t.Fatalf("unexpected listen_port: %#v", section)
+	}
+	if len(addresses) == 0 {
+		if _, ok := section["addresses"]; ok {
+			t.Fatalf("expected addresses to be absent: %#v", section)
+		}
+	} else {
+		raw, ok := section["addresses"].([]any)
+		if !ok || len(raw) != len(addresses) {
+			t.Fatalf("unexpected addresses type/value: %#v", section["addresses"])
+		}
 	}
 }
 
@@ -150,6 +164,9 @@ func assertRequestScope(t *testing.T, mock *ubusmock.Server, expectedSection str
 		}
 		switch record.Method {
 		case "get", "add", "set", "delete":
+			if config, ok := record.Args["config"].(string); ok && config != "network" {
+				t.Fatalf("request targeted unexpected config %q", config)
+			}
 			if section, ok := record.Args["section"].(string); ok && section != "" && section != expectedSection {
 				t.Fatalf("request targeted unexpected section %q", section)
 			}

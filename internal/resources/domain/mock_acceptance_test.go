@@ -67,7 +67,6 @@ func TestAccOpenWRTDomainMockLifecycle(t *testing.T) {
 	writeWorkspaceConfig(t, workspace, mock.URL(), mockAccInitialName, mockAccInitialIP)
 	env := tofuEnv(t, tofurc)
 
-	runCmd(t, workspace, env, tofuExe, "init", "-input=false", "-no-color")
 	runCmd(t, workspace, env, tofuExe, "validate", "-no-color")
 
 	// Create
@@ -225,6 +224,7 @@ func writeWorkspaceConfig(t *testing.T, workspace, remoteURL, name, ip string) {
   required_providers {
     openwrt = {
       source = "%s"
+				version = "0.2.3"
     }
   }
 }

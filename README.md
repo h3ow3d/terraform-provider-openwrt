@@ -15,7 +15,7 @@ terraform {
   required_providers {
     openwrt = {
       source  = "h3ow3d/openwrt"
-      version = "0.2.1"
+      version = "0.2.3"
     }
   }
 }
@@ -39,6 +39,7 @@ Provider args can also be set with environment variables:
 - `openwrt_domain`
 - `openwrt_dhcp_host`
 - `openwrt_dhcp_pool`
+- `openwrt_wireguard_interface`
 
 See [examples/basic/main.tf](examples/basic/main.tf) for a minimal end-to-end spec using all currently supported resources.
 
@@ -48,7 +49,7 @@ Resources use HTTP ubus UCI operations through the LuCI JSON-RPC endpoint. The p
 
 ## Known limitations
 
-- `openwrt_device`, `openwrt_domain`, `openwrt_dhcp_host`, and `openwrt_dhcp_pool` are currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
+- `openwrt_device`, `openwrt_domain`, `openwrt_dhcp_host`, `openwrt_dhcp_pool`, and `openwrt_wireguard_interface` are currently available. Other resource types will return as they are migrated to HTTP ubus UCI operations.
 - Migrate existing unmanaged OpenWrt configs gradually and validate each step.
 
 ## Documentation
@@ -90,4 +91,4 @@ MIT. See [LICENSE](LICENSE).
 1. Create a GPG key for provider signing.
 2. Add `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` GitHub repository secrets.
 3. Create a Terraform Registry provider in namespace `h3ow3d`, type `openwrt`, from this repository.
-4. Push a semantic tag (for example `v0.2.1`); the release workflow at [release.yml](.github/workflows/release.yml) publishes release artifacts.
+4. Push a semantic tag (for example `v0.2.3`); the release workflow at [release.yml](.github/workflows/release.yml) publishes release artifacts.

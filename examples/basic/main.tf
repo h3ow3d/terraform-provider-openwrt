@@ -1,7 +1,8 @@
 terraform {
   required_providers {
     openwrt = {
-      source = "registry.terraform.io/h3ow3d/openwrt"
+      source  = "registry.terraform.io/h3ow3d/openwrt"
+      version = "0.2.3"
     }
   }
 }
@@ -36,4 +37,11 @@ resource "openwrt_dhcp_pool" "probe" {
   force     = true
   dhcpv6    = "disabled"
   ra        = "disabled"
+}
+
+resource "openwrt_wireguard_interface" "probe" {
+  name        = "wg_runner"
+  private_key = "base64-test-private-key="
+  listen_port = 51820
+  addresses   = ["10.42.0.1/24"]
 }
