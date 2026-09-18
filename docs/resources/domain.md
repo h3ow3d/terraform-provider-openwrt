@@ -5,8 +5,8 @@ Manages a static DNS record (`config domain`) in `/etc/config/dhcp`.
 ## Example Usage
 
 ```hcl
-resource "openwrt_domain" "grafana_runner" {
-  name = "monitoring.segment-a.example.internal"
+resource "openwrt_domain" "application" {
+  name = "app.example.invalid"
   ip   = "192.0.2.10"
 }
 ```
@@ -31,5 +31,5 @@ resource "openwrt_domain" "grafana_runner" {
 ## Import
 
 ```bash
-terraform import openwrt_domain.grafana_runner monitoring.segment-a.example.internal
+terraform import openwrt_domain.application app.example.invalid
 ```

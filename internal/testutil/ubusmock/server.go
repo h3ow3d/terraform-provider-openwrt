@@ -588,6 +588,18 @@ func (s *Server) handleUCISet(w http.ResponseWriter, id any, token string, args 
 func (s *Server) handleUCIDelete(w http.ResponseWriter, id any, token string, args map[string]any) {
 	config, _ := args["config"].(string)
 	sectionName, _ := args["section"].(string)
+	option, _ := args["option"].(string)
+	options := []string{}
+	if rawOptions, ok := args["options"].([]any); ok {
+		for _, rawOption := range rawOptions {
+			if parsed, ok := rawOption.(string); ok && parsed != "" {
+				options = append(options, parsed)
+			}
+		}
+	}
+	if option != "" {
+		options = append(options, option)
+	}
 	if config == "" || sectionName == "" {
 		s.writeRPCResult(w, id, []any{2})
 		return
@@ -606,6 +618,20 @@ func (s *Server) handleUCIDelete(w http.ResponseWriter, id any, token string, ar
 		return
 	}
 	s.ensureSessionConfigLocked(session, config)
+	if len(options) > 0 {
+		stagedSection, hasStaged := session.staged.sections[config][sectionName]
+		if !hasStaged {
+			stagedSection = view[sectionName]
+			stagedSection.Values = deepCopyMap(stagedSection.Values)
+		}
+		for _, optionName := range options {
+			delete(stagedSection.Values, optionName)
+			session.staged.changes[config] = append(session.staged.changes[config], []any{"remove", sectionName, optionName})
+		}
+		session.staged.sections[config][sectionName] = stagedSection
+		s.writeRPCResult(w, id, []any{0})
+		return
+	}
 	session.staged.deleted[config][sectionName] = true
 	delete(session.staged.sections[config], sectionName)
 	session.staged.changes[config] = append(session.staged.changes[config], []any{"delete", sectionName})

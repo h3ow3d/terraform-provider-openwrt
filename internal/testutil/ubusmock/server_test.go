@@ -132,6 +132,35 @@ func TestAddSetDeleteChangesAndApplyConfirm(t *testing.T) {
 	}
 }
 
+func TestDeleteOptionPreservesSection(t *testing.T) {
+	mock := NewServer()
+	defer mock.Close()
+	client := newClient(mock.URL())
+	ctx := context.Background()
+
+	if _, err := client.UCIAdd(ctx, modernubus.UCIAddRequest{
+		Config: "dhcp",
+		Type:   "host",
+		Name:   "tmp_host",
+		Values: map[string]any{"name": "tmp.invalid", "ip": "192.0.2.1", "mac": "02:11:22:33:44:55"},
+	}); err != nil {
+		t.Fatalf("add failed: %v", err)
+	}
+	if _, err := client.UCIDelete(ctx, modernubus.UCIDeleteRequest{Config: "dhcp", Section: "tmp_host", Option: "mac"}); err != nil {
+		t.Fatalf("option delete failed: %v", err)
+	}
+	staged, err := client.UCIGet(ctx, modernubus.UCIGetRequest{Config: "dhcp", Section: "tmp_host"})
+	if err != nil || !staged.SectionExists {
+		t.Fatalf("section missing after option delete: exists=%v err=%v", staged.SectionExists, err)
+	}
+	if _, exists := staged.Values["mac"]; exists {
+		t.Fatal("deleted option remains visible")
+	}
+	if name, _ := staged.Values["name"].String(); name != "tmp.invalid" {
+		t.Fatalf("unrelated option changed: %q", name)
+	}
+}
+
 func TestRollbackWithoutConfirm(t *testing.T) {
 	mock := NewServer()
 	defer mock.Close()
