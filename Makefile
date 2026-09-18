@@ -19,4 +19,4 @@ precommit:
 	pre-commit run --all-files
 
 testacc-mock:
-	TF_ACC=1 OPENWRT_ACC_TARGET=mock $(GO) test -v ./internal/resources/domain ./internal/resources/dhcphost -run TestAccOpenWRT.*MockLifecycle -count=1
+	TF_ACC=1 OPENWRT_ACC_TARGET=mock $(GO) test -v ./internal/resources/domain ./internal/resources/dhcphost ./internal/resources/dhcppool -run TestAccOpenWRT.*MockLifecycle -count=1

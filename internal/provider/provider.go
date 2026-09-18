@@ -6,6 +6,7 @@ import (
 
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/client/modernubus"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/dhcphost"
+	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/dhcppool"
 	"github.com/h3ow3d/terraform-provider-openwrt/internal/resources/domain"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -100,6 +101,7 @@ func (p *OpenWRTProvider) DataSources(ctx context.Context) []func() datasource.D
 func (p *OpenWRTProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		dhcphost.NewResource,
+		dhcppool.NewResource,
 		domain.NewResource,
 	}
 }
