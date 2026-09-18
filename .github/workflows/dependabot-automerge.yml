@@ -24,7 +24,7 @@ jobs:
         id: guardrails
         env:
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const updateType = process.env.UPDATE_TYPE || '';
@@ -44,7 +44,7 @@ jobs:
 
       - name: Guardrail - require successful CI test job
         if: steps.guardrails.outputs.eligible == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const sha = context.payload.pull_request.head.sha;
