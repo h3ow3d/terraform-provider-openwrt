@@ -15,7 +15,7 @@ terraform {
   required_providers {
     openwrt = {
       source  = "h3ow3d/openwrt"
-      version = "0.1.0"
+      version = "0.2.1"
     }
   }
 }
@@ -38,6 +38,8 @@ Provider args can also be set with environment variables:
 - `openwrt_domain`
 - `openwrt_dhcp_host`
 - `openwrt_dhcp_pool`
+
+See [examples/basic/main.tf](examples/basic/main.tf) for a minimal end-to-end spec using all currently supported resources.
 
 ## How apply works
 
@@ -87,4 +89,4 @@ MIT. See [LICENSE](LICENSE).
 1. Create a GPG key for provider signing.
 2. Add `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` GitHub repository secrets.
 3. Create a Terraform Registry provider in namespace `h3ow3d`, type `openwrt`, from this repository.
-4. Push a semantic tag (for example `v0.1.0`); the release workflow at [release.yml](.github/workflows/release.yml) publishes release artifacts.
+4. Push a semantic tag (for example `v0.2.1`); the release workflow at [release.yml](.github/workflows/release.yml) publishes release artifacts.

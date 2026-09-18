@@ -9,7 +9,7 @@ terraform {
   required_providers {
     openwrt = {
       source  = "h3ow3d/openwrt"
-      version = "0.1.0"
+      version = "0.2.1"
     }
   }
 }

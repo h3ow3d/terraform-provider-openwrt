@@ -20,3 +20,14 @@ resource "openwrt_dhcp_host" "probe" {
   ip       = "192.0.2.10"
   dns      = true
 }
+
+resource "openwrt_dhcp_pool" "probe" {
+  name      = "tf-provider-pool-probe"
+  interface = "lan"
+  start     = 100
+  limit     = 50
+  leasetime = "12h"
+  force     = true
+  dhcpv6    = "disabled"
+  ra        = "disabled"
+}
